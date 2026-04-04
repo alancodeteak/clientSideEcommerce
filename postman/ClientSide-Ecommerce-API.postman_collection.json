@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "ClientSide Ecommerce API",
-    "description": "Storefront API (`clientSideEcommerce`): health, customer auth (register/login), catalog.\n\n**Prerequisites**\n- Server running (`npm run dev`, default port **4100**).\n- PostgreSQL migrated (`npm run db:migrate`).\n- A **shop** row must exist; set **`shopId`** (UUID) in the environment to match it.\n\n**Flow**\n1. Run **Health**.\n2. **Register** (or **Login** if the user exists).\n3. Optional: copy `accessToken` from the response for future authenticated routes.\n4. **List categories** and **products** with the same shop (`shopId` query or `x-shop-id` header). **`GET /api/catalog/items`** is an alias of **products**.\n\nJWT payload includes `role: customer`, `shopId`, `customerId`.",
+    "description": "Storefront API (`clientSideEcommerce`): health, customer auth (register/login), Google OAuth (Better Auth), catalog.\n\n**Prerequisites**\n- Server running (`npm run dev`, default port **4100**).\n- PostgreSQL: `npm run db:migrate` and **`npm run db:oauth:migrate`** (Better Auth tables).\n- A **shop** row must exist; set **`shopId`** (UUID) in the environment to match it.\n\n**Flow**\n1. Run **Health** and **GET /api/oauth/ok** (Better Auth mounted).\n2. **Register** (or **Login** if the user exists), or use **Google OAuth** from the frontend (`better-auth/client`, `basePath` `/api/oauth`).\n3. Optional: copy `accessToken` from the response for future authenticated routes.\n4. **List categories** and **products** with the same shop (`shopId` query or `x-shop-id` header). **`GET /api/catalog/items`** is an alias of **products**.\n\nJWT payload includes `role: customer`, `shopId`, `customerId`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -89,6 +89,21 @@
             },
             "url": "{{baseUrl}}/api/auth/login",
             "description": "Customer login with **email + password** only. Response includes **`shopIds`** (shop UUIDs only, active memberships).\n\n**401** — invalid credentials or no customer profile.\n\nTest script saves `accessToken` and sets `shopId` to the first `shopIds` entry when present."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "OAuth (Better Auth)",
+      "item": [
+        {
+          "name": "GET /api/oauth/ok",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/oauth/ok",
+            "description": "Better Auth liveness. Expect `{ \"ok\": true }`. Google sign-in uses the Better Auth client (`signIn.social`) — not a simple Postman GET; configure **Google OAuth** env vars and redirect URI `{baseUrl}/api/oauth/callback/google`."
           },
           "response": []
         }
