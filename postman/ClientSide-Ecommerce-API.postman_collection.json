@@ -1,0 +1,125 @@
+{
+  "info": {
+    "name": "ClientSide Ecommerce API",
+    "description": "Storefront API (`clientSideEcommerce`): health, customer auth (register/login), catalog.\n\n**Prerequisites**\n- Server running (`npm run dev`, default port **4100**).\n- PostgreSQL migrated (`npm run db:migrate`).\n- A **shop** row must exist; set **`shopId`** (UUID) in the environment to match it.\n\n**Flow**\n1. Run **Health**.\n2. **Register** (or **Login** if the user exists).\n3. Optional: copy `accessToken` from the response for future authenticated routes.\n4. **List catalog items** with the same shop (`shopId` query or `x-shop-id` header).\n\nJWT payload includes `role: customer`, `shopId`, `customerId`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4100" },
+    { "key": "shopId", "value": "" },
+    { "key": "email", "value": "buyer@example.com" },
+    { "key": "password", "value": "secret12" },
+    { "key": "accessToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Liveness check. Returns `status` and `service`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /api/auth/register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.accessToken) pm.collectionVariables.set('accessToken', j.accessToken);",
+                  "  if (j.shop && j.shop.id) pm.collectionVariables.set('shopId', j.shop.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"displayName\": \"Test Buyer\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Create user + customer + membership for the shop. **`shopId`** is the shop UUID.\n\n**201** — returns `accessToken`, `user`, `shop`, `customer`, `role: customer`.\n\n**409** — already registered for this shop (active membership).\n\nTest script saves `accessToken` and `shopId` to collection variables on success."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.accessToken) pm.collectionVariables.set('accessToken', j.accessToken);",
+                  "  if (j.shopIds && j.shopIds[0]) pm.collectionVariables.set('shopId', j.shopIds[0]);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Customer login with **email + password** only. Response includes **`shopIds`** (shop UUIDs only, active memberships).\n\n**401** — invalid credentials or no customer profile.\n\nTest script saves `accessToken` and sets `shopId` to the first `shopIds` entry when present."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Catalog",
+      "item": [
+        {
+          "name": "GET /api/catalog/items (query shopId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/catalog/items?shopId={{shopId}}",
+            "description": "Lists **active** products for the shop. Set `shopId` in variables (from **Register** response or your DB)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/catalog/items (header x-shop-id)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-shop-id", "value": "{{shopId}}", "description": "Same as query param" }
+            ],
+            "url": "{{baseUrl}}/api/catalog/items",
+            "description": "Alternative to `?shopId=` — pass shop UUID in **x-shop-id**."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

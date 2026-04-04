@@ -2,11 +2,16 @@ import jwt from "jsonwebtoken";
 import { env } from "../../config/env.js";
 
 /**
- * @param {{ userId: string, shopId: string, customerId: string, role?: string }} claims
+ * @param {{ userId: string, customerId: string, shopId?: string|null, role?: string }} claims
+ * `shopId` is set on register; login (email-only) issues a token without `shopId`.
  */
-export function signCustomerAccessToken({ userId, shopId, customerId, role = "customer" }) {
+export function signCustomerAccessToken({ userId, customerId, shopId, role = "customer" }) {
+  const payload = { sub: userId, customerId, role };
+  if (shopId != null && shopId !== "") {
+    payload.shopId = shopId;
+  }
   return jwt.sign(
-    { sub: userId, shopId, customerId, role },
+    payload,
     env.JWT_SECRET,
     {
       issuer: env.JWT_ISSUER,

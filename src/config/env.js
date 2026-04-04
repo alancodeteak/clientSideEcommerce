@@ -8,7 +8,8 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().positive().default(4100),
     CORS_ORIGIN: z.string().min(1).default("http://localhost:5173"),
-    DATABASE_URL: z.string().min(1),
+    /** Omit in local dev to use the default below; required in production. */
+    DATABASE_URL: z.string().min(1).optional(),
 
     JWT_SECRET: z.string().min(16).default("dev_only_change_me_please"),
     JWT_ISSUER: z.string().min(1).default("clientside-ecommerce"),
@@ -16,6 +17,13 @@ const envSchema = z
     JWT_EXPIRES_IN: z.string().min(1).default("8h")
   })
   .superRefine((val, ctx) => {
+    if (val.NODE_ENV === "production" && !val.DATABASE_URL?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DATABASE_URL"],
+        message: "DATABASE_URL is required in production"
+      });
+    }
     if (val.NODE_ENV === "production" && val.JWT_SECRET === "dev_only_change_me_please") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -32,4 +40,14 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+const DEV_DEFAULT_DATABASE_URL = "postgresql://localhost:5432/postgres";
+
+const databaseUrlRaw = parsed.data.DATABASE_URL?.trim();
+
+export const env = {
+  ...parsed.data,
+  DATABASE_URL:
+    parsed.data.NODE_ENV === "production"
+      ? databaseUrlRaw
+      : databaseUrlRaw || DEV_DEFAULT_DATABASE_URL
+};

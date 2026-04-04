@@ -21,7 +21,7 @@ The database schema matches the unified multi-tenant ecommerce script: `migratio
 
 Copy `.env.example` to `.env` and set at least:
 
-- `DATABASE_URL` — PostgreSQL connection string
+- `DATABASE_URL` — PostgreSQL connection string (**optional in development**: defaults to `postgresql://localhost:5432/postgres` if unset). **Required in production.**
 - `JWT_SECRET` — min 16 characters (required non-default in production)
 - `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_EXPIRES_IN` — optional; defaults suit local dev
 
@@ -37,6 +37,13 @@ npm run dev
 
 Ensure a **shop** row exists (e.g. from admin backend or SQL) before calling customer auth.
 
+## Postman
+
+1. Import [postman/ClientSide-Ecommerce-API.postman_collection.json](postman/ClientSide-Ecommerce-API.postman_collection.json) into Postman.
+2. Optional: import [postman/Local.postman_environment.json](postman/Local.postman_environment.json) and select environment **ClientSide Ecommerce — Local**.
+3. Set `shopId` (shop UUID) and `email` / `password` to match your database.
+4. Run **Health**, then **Auth → Register** or **Login**; successful responses save `accessToken` and `shopId` to collection variables for the **Catalog** requests.
+
 ## API
 
 ### Health
@@ -45,15 +52,15 @@ Ensure a **shop** row exists (e.g. from admin backend or SQL) before calling cus
 
 ### Customer auth
 
-Identity uses `users` (credentials), `customers` (profile, one per user), and `customer_shop_memberships` (shop scope). JWT payload includes `role: "customer"`, `shopId`, and `customerId`.
+Identity uses `users` (credentials), `customers` (profile, one per user), and `customer_shop_memberships` (shop scope). **Register** tokens include `shopId` in the JWT. **Login** tokens omit `shopId` in the JWT; the JSON body includes **`shopIds`** (active membership shop UUIDs only).
 
 **Register** — `POST /api/auth/register` (201)
 
-Body (provide **`shopSlug`** or **`shopId`**):
+Body (shop UUID from your database):
 
 ```json
 {
-  "shopSlug": "my-shop",
+  "shopId": "00000000-0000-0000-0000-000000000000",
   "email": "buyer@example.com",
   "password": "secret12",
   "displayName": "Alex"
@@ -78,13 +85,12 @@ If the email already exists, the same password must be supplied; the service eit
 
 ```json
 {
-  "shopSlug": "my-shop",
   "email": "buyer@example.com",
   "password": "secret12"
 }
 ```
 
-Response shape matches register (200).
+**200** — `{ accessToken, role, user, customer, shopIds }` where `shopIds` is an array of shop UUID strings for active memberships (empty if none). JWT has no `shopId` claim on login; use a value from `shopIds` for catalog query/header.
 
 ### Catalog (tenant-scoped)
 

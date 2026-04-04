@@ -40,16 +40,6 @@
 export class CustomerAuthRepo {
   /**
    * @param {import("pg").PoolClient} _client
-   * @param {string} _slug
-   * @returns {Promise<ShopRow|null>}
-   */
-  // eslint-disable-next-line no-unused-vars
-  async getShopBySlug(_client, _slug) {
-    throw new Error("Not implemented");
-  }
-
-  /**
-   * @param {import("pg").PoolClient} _client
    * @param {string} _shopId
    * @returns {Promise<ShopRow|null>}
    */
@@ -86,6 +76,17 @@ export class CustomerAuthRepo {
    */
   // eslint-disable-next-line no-unused-vars
   async getMembershipByCustomerAndShop(_client, _customerId, _shopId) {
+    throw new Error("Not implemented");
+  }
+
+  /**
+   * Shop UUIDs the customer has an active membership for (login reference).
+   * @param {import("pg").PoolClient} _client
+   * @param {string} _customerId
+   * @returns {Promise<string[]>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async listShopIdsForCustomer(_client, _customerId) {
     throw new Error("Not implemented");
   }
 

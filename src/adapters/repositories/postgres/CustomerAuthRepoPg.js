@@ -2,17 +2,6 @@ import { CustomerAuthRepo } from "../../../application/ports/repositories/Custom
 
 export class CustomerAuthRepoPg extends CustomerAuthRepo {
   /** @param {import("pg").PoolClient} client */
-  async getShopBySlug(client, slug) {
-    const { rows } = await client.query(
-      `SELECT id, slug, name, is_active, status, is_blocked, is_deleted
-         FROM shops
-        WHERE slug = $1`,
-      [slug]
-    );
-    return rows[0] ?? null;
-  }
-
-  /** @param {import("pg").PoolClient} client */
   async getShopById(client, shopId) {
     const { rows } = await client.query(
       `SELECT id, slug, name, is_active, status, is_blocked, is_deleted
@@ -54,6 +43,22 @@ export class CustomerAuthRepoPg extends CustomerAuthRepo {
       [customerId, shopId]
     );
     return rows[0] ?? null;
+  }
+
+  /** @param {import("pg").PoolClient} client */
+  async listShopIdsForCustomer(client, customerId) {
+    const { rows } = await client.query(
+      `SELECT s.id
+         FROM customer_shop_memberships m
+         JOIN shops s ON s.id = m.shop_id
+        WHERE m.customer_id = $1
+          AND m.is_active = true
+          AND m.is_blocked = false
+          AND m.is_deleted = false
+        ORDER BY s.id ASC`,
+      [customerId]
+    );
+    return rows.map((r) => r.id);
   }
 
   /** @param {import("pg").PoolClient} client */

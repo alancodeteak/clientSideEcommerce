@@ -11,14 +11,12 @@ import { shopAllowsCustomers } from "./shopPolicy.js";
 export function registerCustomer({ authRepo }) {
   /**
    * @param {import("pg").PoolClient} client
-   * @param {{ shopSlug?: string, shopId?: string, email: string, password: string, displayName?: string|null }} input
+   * @param {{ shopId: string, email: string, password: string, displayName?: string|null }} input
    */
   return async function execute(client, input) {
-    const { shopSlug, shopId, email, password, displayName } = input;
+    const { shopId, email, password, displayName } = input;
 
-    const shop = shopId
-      ? await authRepo.getShopById(client, shopId)
-      : await authRepo.getShopBySlug(client, shopSlug ?? "");
+    const shop = await authRepo.getShopById(client, shopId);
 
     if (!shopAllowsCustomers(shop)) {
       throw new ValidationError("Shop is not available");
