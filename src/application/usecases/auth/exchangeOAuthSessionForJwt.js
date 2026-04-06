@@ -1,8 +1,9 @@
 import { AuthError } from "../../../domain/errors/AuthError.js";
 import { signCustomerAccessToken } from "../../../infra/auth/jwt.js";
+import { buildProfileFromShops } from "./customerProfile.js";
 
 /**
- * Purpose: Turn a Google sign-in (by email) into the same JWT you get from email/password login.
+ * Purpose: Turn a Google sign-in (by email) into the same JWT/shape as email/password login.
  * Only works if we already saved that person as a storefront user and customer.
  */
 export function exchangeOAuthSessionForJwt({ authRepo }) {
@@ -19,7 +20,9 @@ export function exchangeOAuthSessionForJwt({ authRepo }) {
       throw new AuthError("Invalid credentials");
     }
 
-    const shopIds = await authRepo.listShopIdsForCustomer(client, customer.id);
+    const shops = await authRepo.listActiveShopsForCustomer(client, customer.id);
+    const shopIds = shops.map((s) => s.id);
+    const profile = buildProfileFromShops(customer, shops);
 
     const accessToken = signCustomerAccessToken({
       userId: user.id,
@@ -35,7 +38,8 @@ export function exchangeOAuthSessionForJwt({ authRepo }) {
         registrationSource: user.registration_source
       },
       customer: { id: customer.id },
-      shopIds
+      shopIds,
+      profile
     };
   };
 }

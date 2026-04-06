@@ -77,7 +77,8 @@ Response:
   "role": "customer",
   "user": { "id": "<uuid>", "email": "buyer@example.com" },
   "shop": { "id": "<uuid>", "slug": "my-shop", "name": "My Shop" },
-  "customer": { "id": "<uuid>" }
+  "customer": { "id": "<uuid>" },
+  "profile": [{ "name": "Alex", "shopName": "My Shop", "shopId": "<uuid>", "shopSlug": "my-shop" }]
 }
 ```
 
@@ -92,7 +93,7 @@ If the email already exists, the same password must be supplied; the service eit
 }
 ```
 
-**200** — `{ accessToken, role, user, customer, shopIds }` where `shopIds` is an array of shop UUID strings for active memberships (empty if none). JWT has no `shopId` claim on login; use a value from `shopIds` for catalog query/header.
+**200** — `{ accessToken, role, user, customer, shopIds, profile }` where `shopIds` lists active membership shop UUIDs (empty if none) and `profile` lists the same shops with `name` (`customers.display_name`), `shopName`, `shopId`, `shopSlug`. JWT has no `shopId` claim on login; use a value from `shopIds` for catalog query/header.
 
 ### Catalog (tenant-scoped)
 

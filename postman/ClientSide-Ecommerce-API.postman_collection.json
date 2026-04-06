@@ -57,7 +57,7 @@
               "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"displayName\": \"Test Buyer\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/register",
-            "description": "Create user + customer + membership for the shop. **`shopId`** is the shop UUID.\n\n**201** — returns `accessToken`, `user`, `shop`, `customer`, `role: customer`.\n\n**409** — already registered for this shop (active membership).\n\nTest script saves `accessToken` and `shopId` to collection variables on success."
+            "description": "Create user + customer + membership for the shop. **`shopId`** is the shop UUID.\n\n**201** — returns `accessToken`, `user`, `shop`, `customer`, `profile` (name + shop fields), `role: customer`.\n\n**409** — already registered for this shop (active membership).\n\nTest script saves `accessToken` and `shopId` to collection variables on success."
           },
           "response": []
         },
@@ -88,7 +88,7 @@
               "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login",
-            "description": "Customer login with **email + password** only. Response includes **`shopIds`** (shop UUIDs only, active memberships).\n\n**401** — invalid credentials or no customer profile.\n\nTest script saves `accessToken` and sets `shopId` to the first `shopIds` entry when present."
+            "description": "Customer login with **email + password** only. Response includes **`shopIds`**, **`profile`** (per shop: `name` from customer display name, `shopName` / `shopId` / `shopSlug`).\n\n**401** — invalid credentials or no customer profile.\n\nTest script saves `accessToken` and sets `shopId` to the first `shopIds` entry when present."
           },
           "response": []
         },
@@ -114,7 +114,7 @@
               { "key": "Cookie", "value": "better-auth.session_token=PASTE_VALUE_AFTER_BROWSER_OAUTH", "description": "Copy from browser DevTools → Application → Cookies, or use Postman Interceptor." }
             ],
             "url": "{{baseUrl}}/api/auth/oauth/jwt",
-            "description": "Returns a storefront **JWT** like **login**, using an existing **Better Auth** session. Postman has no cookie until you paste **`better-auth.session_token`** from the browser after Google sign-in. Same-origin browser **`fetch(..., { credentials: 'include' })`** does not need a manual Cookie header."
+            "description": "Returns a storefront **JWT** like **login** (`shopIds`, `profile`, etc.), using an existing **Better Auth** session. Postman has no cookie until you paste **`better-auth.session_token`** from the browser after Google sign-in. Same-origin browser **`fetch(..., { credentials: 'include' })`** does not need a manual Cookie header."
           },
           "response": []
         }

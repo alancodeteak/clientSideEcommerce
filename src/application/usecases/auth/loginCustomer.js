@@ -1,9 +1,10 @@
 import { AuthError } from "../../../domain/errors/AuthError.js";
 import { verifyPassword } from "../../../infra/security/passwordHasher.js";
 import { signCustomerAccessToken } from "../../../infra/auth/jwt.js";
+import { buildProfileFromShops } from "./customerProfile.js";
 
 /**
- * Purpose: Sign in with email and password and return a JWT plus shop memberships.
+ * Purpose: Sign in with email and password and return a JWT plus shop memberships and profile rows.
  */
 export function loginCustomer({ authRepo }) {
   return async function execute(client, input) {
@@ -24,7 +25,9 @@ export function loginCustomer({ authRepo }) {
       throw new AuthError("Invalid credentials");
     }
 
-    const shopIds = await authRepo.listShopIdsForCustomer(client, customer.id);
+    const shops = await authRepo.listActiveShopsForCustomer(client, customer.id);
+    const shopIds = shops.map((s) => s.id);
+    const profile = buildProfileFromShops(customer, shops);
 
     const accessToken = signCustomerAccessToken({
       userId: user.id,
@@ -40,7 +43,8 @@ export function loginCustomer({ authRepo }) {
         registrationSource: user.registration_source
       },
       customer: { id: customer.id },
-      shopIds
+      shopIds,
+      profile
     };
   };
 }

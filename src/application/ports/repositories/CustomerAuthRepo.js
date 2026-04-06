@@ -92,6 +92,17 @@ export class CustomerAuthRepo {
   }
 
   /**
+   * Active shops for the customer (id, name, slug) via `customer_shop_memberships` → `shops`.
+   * @param {import("pg").PoolClient} _client
+   * @param {string} _customerId
+   * @returns {Promise<{ id: string, name: string, slug: string }[]>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async listActiveShopsForCustomer(_client, _customerId) {
+    throw new Error("Not implemented");
+  }
+
+  /**
    * @param {import("pg").PoolClient} _client
    * @param {{ email: string, password_hash: string|null, registration_source?: 'password'|'google' }} _row
    * @returns {Promise<{ id: string, email: string|null }>}

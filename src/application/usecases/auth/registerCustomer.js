@@ -4,10 +4,11 @@ import { ValidationError } from "../../../domain/errors/ValidationError.js";
 import { hashPassword, verifyPassword } from "../../../infra/security/passwordHasher.js";
 import { signCustomerAccessToken } from "../../../infra/auth/jwt.js";
 import { shopAllowsCustomers } from "./shopPolicy.js";
+import { buildProfileFromShops } from "./customerProfile.js";
 
 /**
  * Purpose: Join a shop as a customer — new account or existing email adding this shop.
- * Returns a JWT and shop info; JWT includes shopId on success.
+ * Returns a JWT, shop info, and `profile` (one row for the target shop); JWT includes shopId on success.
  */
 export function registerCustomer({ authRepo }) {
   return async function execute(client, input) {
@@ -39,12 +40,16 @@ export function registerCustomer({ authRepo }) {
         customerId: customer.id
       });
 
+      const shops = [{ id: shop.id, name: shop.name, slug: shop.slug }];
+      const profile = buildProfileFromShops({ display_name: displayName ?? null }, shops);
+
       return {
         accessToken,
         role: "customer",
         user: { id: user.id, email: user.email, registrationSource: user.registration_source },
         shop: { id: shop.id, slug: shop.slug, name: shop.name },
-        customer: { id: customer.id }
+        customer: { id: customer.id },
+        profile
       };
     }
 
@@ -86,6 +91,12 @@ export function registerCustomer({ authRepo }) {
       customerId: customer.id
     });
 
+    const shops = [{ id: shop.id, name: shop.name, slug: shop.slug }];
+    const profile = buildProfileFromShops(
+      { display_name: customer.display_name ?? displayName ?? null },
+      shops
+    );
+
     return {
       accessToken,
       role: "customer",
@@ -95,7 +106,8 @@ export function registerCustomer({ authRepo }) {
         registrationSource: existing.registration_source
       },
       shop: { id: shop.id, slug: shop.slug, name: shop.name },
-      customer: { id: customer.id }
+      customer: { id: customer.id },
+      profile
     };
   };
 }

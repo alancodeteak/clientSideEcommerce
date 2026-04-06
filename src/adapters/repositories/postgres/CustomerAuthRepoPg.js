@@ -62,6 +62,22 @@ export class CustomerAuthRepoPg extends CustomerAuthRepo {
   }
 
   /** @param {import("pg").PoolClient} client */
+  async listActiveShopsForCustomer(client, customerId) {
+    const { rows } = await client.query(
+      `SELECT s.id, s.name, s.slug
+         FROM customer_shop_memberships m
+         JOIN shops s ON s.id = m.shop_id
+        WHERE m.customer_id = $1
+          AND m.is_active = true
+          AND m.is_blocked = false
+          AND m.is_deleted = false
+        ORDER BY s.id ASC`,
+      [customerId]
+    );
+    return rows;
+  }
+
+  /** @param {import("pg").PoolClient} client */
   async insertUser(client, { email, password_hash, registration_source = "password" }) {
     const { rows } = await client.query(
       `INSERT INTO users (email, password_hash, registration_source)
