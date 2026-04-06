@@ -1,5 +1,7 @@
 import { CatalogRepoPg } from "../adapters/repositories/postgres/CatalogRepoPg.js";
 import { CustomerAuthRepoPg } from "../adapters/repositories/postgres/CustomerAuthRepoPg.js";
+import { ShopServiceAreaRepoPg } from "../adapters/repositories/postgres/ShopServiceAreaRepoPg.js";
+import { env } from "../config/env.js";
 import { createListCatalogItems } from "../application/usecases/catalog/listCatalogItems.js";
 import { createListCategories } from "../application/usecases/catalog/listCategories.js";
 import { createListProducts } from "../application/usecases/catalog/listProducts.js";
@@ -9,7 +11,9 @@ import { loginCustomer } from "../application/usecases/auth/loginCustomer.js";
 import { exchangeOAuthSessionForJwt } from "../application/usecases/auth/exchangeOAuthSessionForJwt.js";
 import { getCustomerProfile } from "../application/usecases/profile/getCustomerProfile.js";
 import { updateCustomerProfile } from "../application/usecases/profile/updateCustomerProfile.js";
-import { auth } from "../infra/auth/betterAuth.js";
+import { createCheckShopServiceArea } from "../application/usecases/shops/checkShopServiceArea.js";
+import { createEnsureShopForCatalog } from "../application/usecases/catalog/ensureShopForCatalog.js";
+import { createRequireCustomerJwt } from "../interface/http/middleware/requireCustomerJwt.js";
 
 /**
  * Composition root: wire adapters → use cases → handlers.
@@ -18,18 +22,28 @@ import { auth } from "../infra/auth/betterAuth.js";
 export function createAppContext() {
   const catalogRepo = new CatalogRepoPg();
   const customerAuthRepo = new CustomerAuthRepoPg();
+  const shopServiceAreaRepo = new ShopServiceAreaRepoPg();
+  const ensureShopForCatalog = createEnsureShopForCatalog({ authRepo: customerAuthRepo });
+  const customerJwtMiddleware = createRequireCustomerJwt({
+    authRepo: customerAuthRepo,
+    skipDbSessionCheck: env.NODE_ENV === "test"
+  });
 
   return {
-    auth,
     getHealth: createGetHealth(),
-    listCatalogItems: createListCatalogItems({ catalogRepo }),
-    listCategories: createListCategories({ catalogRepo }),
-    listProducts: createListProducts({ catalogRepo }),
+    listCatalogItems: createListCatalogItems({ catalogRepo, ensureShopForCatalog }),
+    listCategories: createListCategories({ catalogRepo, ensureShopForCatalog }),
+    listProducts: createListProducts({ catalogRepo, ensureShopForCatalog }),
     registerCustomer: registerCustomer({ authRepo: customerAuthRepo }),
     loginCustomer: loginCustomer({ authRepo: customerAuthRepo }),
     exchangeOAuthSessionForJwt: exchangeOAuthSessionForJwt({ authRepo: customerAuthRepo }),
     getCustomerProfile: getCustomerProfile({ authRepo: customerAuthRepo }),
-    updateCustomerProfile: updateCustomerProfile({ authRepo: customerAuthRepo })
+    updateCustomerProfile: updateCustomerProfile({ authRepo: customerAuthRepo }),
+    checkShopServiceArea: createCheckShopServiceArea({
+      shopServiceAreaRepo,
+      maxRadiusM: env.SERVICE_AREA_RADIUS_METERS
+    }),
+    requireCustomerJwt: customerJwtMiddleware()
   };
 }
 

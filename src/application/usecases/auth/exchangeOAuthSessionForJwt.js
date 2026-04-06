@@ -3,16 +3,14 @@ import { signCustomerAccessToken } from "../../../infra/auth/jwt.js";
 import { buildProfileFromShops } from "./customerProfile.js";
 
 /**
- * Purpose: Turn a Google sign-in (by email) into the same JWT/shape as email/password login.
- * Only works if we already saved that person as a storefront user and customer.
+ * Compatibility endpoint: generate storefront JWT from an external identity email.
+ * Uses only canonical schema tables (`users`, `customers`, memberships, shops).
  */
 export function exchangeOAuthSessionForJwt({ authRepo }) {
   return async function execute(client, email) {
     const user = await authRepo.getUserByEmail(client, email);
     if (!user || !user.is_active) {
-      throw new AuthError(
-        "No storefront profile for this account. Complete Google sign-in with shopId in additionalData, or register with email for this shop."
-      );
+      throw new AuthError("No storefront profile for this account");
     }
 
     const customer = await authRepo.getCustomerByUserId(client, user.id);
@@ -26,7 +24,8 @@ export function exchangeOAuthSessionForJwt({ authRepo }) {
 
     const accessToken = signCustomerAccessToken({
       userId: user.id,
-      customerId: customer.id
+      customerId: customer.id,
+      shopId: shopIds.length === 1 ? shopIds[0] : undefined
     });
 
     return {

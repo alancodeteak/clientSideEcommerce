@@ -15,7 +15,7 @@
  * @property {string|null} email
  * @property {string|null} phone
  * @property {string|null} password_hash
- * @property {'password'|'google'} registration_source
+ * @property {'password'|'google'} registration_source Derived: `google` when `password_hash` is null, else `password`.
  * @property {boolean} is_active
  */
 
@@ -46,6 +46,17 @@ export class CustomerAuthRepo {
    */
   // eslint-disable-next-line no-unused-vars
   async getShopById(_client, _shopId) {
+    throw new Error("Not implemented");
+  }
+
+  /**
+   * Whether JWT bearer `sub` + `customerId` still refer to an active user + customer (not blocked).
+   * @param {string} _userId
+   * @param {string} _customerId
+   * @returns {Promise<boolean>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async isCustomerSessionValid(_userId, _customerId) {
     throw new Error("Not implemented");
   }
 
@@ -142,8 +153,8 @@ export class CustomerAuthRepo {
 
   /**
    * @param {import("pg").PoolClient} _client
-   * @param {{ email: string, password_hash: string|null, registration_source?: 'password'|'google' }} _row
-   * @returns {Promise<{ id: string, email: string|null }>}
+   * @param {{ email: string, password_hash: string|null }} _row
+   * @returns {Promise<{ id: string, email: string|null, registration_source: 'password'|'google' }>}
    */
   // eslint-disable-next-line no-unused-vars
   async insertUser(_client, _row) {

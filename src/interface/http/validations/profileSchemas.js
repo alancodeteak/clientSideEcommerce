@@ -21,4 +21,13 @@ export const patchProfileBodySchema = z
     displayName: z.string().max(120).nullable().optional(),
     address: addressPatchSchema.optional()
   })
-  .strict();
+  .strict()
+  .superRefine((val, ctx) => {
+    if (val.address !== undefined && Object.keys(val.address).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "address must include at least one field when provided",
+        path: ["address"]
+      });
+    }
+  });

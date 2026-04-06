@@ -1,6 +1,7 @@
--- Unified PostgreSQL deployment script for the multi-tenant ecommerce schema.
--- This replaces split migrations 001..005 for fresh environment provisioning.
--- Includes RLS tenant isolation + outbox table.
+-- Sole PostgreSQL migration for fresh deployment of the multi-tenant ecommerce schema.
+-- Apply this entire file once per new database (e.g. psql -f 001_deployment_postgresql.sql).
+-- Layout targets fresh installs (inline FKs, CHECKs, timestamps on CREATE TABLE); idempotent
+-- ALTER … IF NOT EXISTS / DROP IF EXISTS blocks also help bring older databases closer to current shape.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -32,6 +33,52 @@ BEGIN
   END IF;
 END $$;
 
+-- `users` before `shops` so `shops.owner_user_id` can reference `users(id)` inline.
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE,
+  phone TEXT UNIQUE,
+  password_hash TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  staff_login_code INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS staff_login_code INTEGER;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_staff_login_code_range_chk') THEN
+    ALTER TABLE users
+      ADD CONSTRAINT users_staff_login_code_range_chk
+      CHECK (staff_login_code IS NULL OR (staff_login_code BETWEEN 100000 AND 999999));
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_staff_login_code_uidx
+  ON users (staff_login_code)
+  WHERE staff_login_code IS NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_len_chk') THEN
+    ALTER TABLE users ADD CONSTRAINT users_email_len_chk CHECK (email IS NULL OR char_length(email) <= 254);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_phone_len_chk') THEN
+    ALTER TABLE users ADD CONSTRAINT users_phone_len_chk CHECK (phone IS NULL OR char_length(phone) <= 32);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_format_chk') THEN
+    ALTER TABLE users
+      ADD CONSTRAINT users_email_format_chk
+      CHECK (email IS NULL OR email ~* '^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_phone_format_chk') THEN
+    ALTER TABLE users
+      ADD CONSTRAINT users_phone_format_chk
+      CHECK (phone IS NULL OR phone ~ '^[0-9+][0-9]{7,31}$');
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS shops (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   slug TEXT NOT NULL UNIQUE,
@@ -43,8 +90,10 @@ CREATE TABLE IF NOT EXISTS shops (
   phone TEXT,
   email TEXT,
   address_id UUID REFERENCES addresses(id) ON DELETE SET NULL,
+  owner_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   is_blocked BOOLEAN NOT NULL DEFAULT false,
   is_deleted BOOLEAN NOT NULL DEFAULT false,
+  inventory_tracking_enabled BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ
@@ -70,90 +119,6 @@ BEGIN
   END IF;
 END $$;
 
-CREATE TABLE IF NOT EXISTS categories (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  parent_id UUID REFERENCES categories(id) ON DELETE SET NULL,
-  name TEXT NOT NULL,
-  slug TEXT NOT NULL,
-  sort_order INT NOT NULL DEFAULT 0,
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  metadata JSONB,
-  UNIQUE (shop_id, slug)
-);
-
-CREATE INDEX IF NOT EXISTS idx_categories_shop_parent ON categories(shop_id, parent_id);
-
-CREATE TABLE IF NOT EXISTS products (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
-  name TEXT NOT NULL,
-  slug TEXT NOT NULL,
-  base_unit TEXT NOT NULL,
-  status TEXT NOT NULL,
-  price_minor_per_unit BIGINT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (shop_id, slug)
-);
-
-CREATE INDEX IF NOT EXISTS idx_products_shop_category ON products(shop_id, category_id) WHERE status = 'active';
-
-CREATE TABLE IF NOT EXISTS inventory_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  track_type TEXT NOT NULL,
-  stock_quantity NUMERIC(18, 4) NOT NULL,
-  UNIQUE (shop_id, product_id)
-);
-
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email TEXT UNIQUE,
-  phone TEXT UNIQUE,
-  password_hash TEXT,
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_len_chk') THEN
-    ALTER TABLE users ADD CONSTRAINT users_email_len_chk CHECK (email IS NULL OR char_length(email) <= 254);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_phone_len_chk') THEN
-    ALTER TABLE users ADD CONSTRAINT users_phone_len_chk CHECK (phone IS NULL OR char_length(phone) <= 32);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_format_chk') THEN
-    ALTER TABLE users
-      ADD CONSTRAINT users_email_format_chk
-      CHECK (email IS NULL OR email ~* '^[A-Z0-9._%+\\-]+@[A-Z0-9.\\-]+\\.[A-Z]{2,}$');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_phone_format_chk') THEN
-    ALTER TABLE users
-      ADD CONSTRAINT users_phone_format_chk
-      CHECK (phone IS NULL OR phone ~ '^[0-9+][0-9]{7,31}$');
-  END IF;
-END $$;
-
--- How the storefront user row was first created: email/password vs Google (OAuth).
-DO $$
-BEGIN
-  ALTER TABLE users ADD COLUMN IF NOT EXISTS registration_source TEXT;
-  UPDATE users
-     SET registration_source = CASE WHEN password_hash IS NULL THEN 'google' ELSE 'password' END
-   WHERE registration_source IS NULL;
-  ALTER TABLE users ALTER COLUMN registration_source SET DEFAULT 'password';
-  ALTER TABLE users ALTER COLUMN registration_source SET NOT NULL;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_registration_source_chk') THEN
-    ALTER TABLE users
-      ADD CONSTRAINT users_registration_source_chk
-      CHECK (registration_source IN ('password', 'google'));
-  END IF;
-END $$;
-
 -- Stricter format checks for shop-facing identifiers.
 DO $$
 BEGIN
@@ -165,7 +130,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shops_email_format_chk') THEN
     ALTER TABLE shops
       ADD CONSTRAINT shops_email_format_chk
-      CHECK (email IS NULL OR email ~* '^[A-Z0-9._%+\\-]+@[A-Z0-9.\\-]+\\.[A-Z]{2,}$');
+      CHECK (email IS NULL OR email ~* '^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shops_phone_format_chk') THEN
     ALTER TABLE shops
@@ -177,39 +142,84 @@ BEGIN
       ADD CONSTRAINT shops_custom_domain_format_chk
       CHECK (
         custom_domain IS NULL
-        OR custom_domain ~* '^[A-Z0-9](?:[A-Z0-9\\-]{0,61}[A-Z0-9])?(?:\\.[A-Z0-9](?:[A-Z0-9\\-]{0,61}[A-Z0-9])?)+$'
+        OR custom_domain ~* '^[A-Z0-9](?:[A-Z0-9\-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9\-]{0,61}[A-Z0-9])?)+$'
       );
   END IF;
 END $$;
 
--- Optional linkage from shop -> primary owner account (keeps password in `users`).
-ALTER TABLE shops
-  ADD COLUMN IF NOT EXISTS owner_user_id UUID;
-
+-- Upgrade: `shops` without `owner_user_id` (column is inline on fresh CREATE).
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_user_id UUID;
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'shops_owner_user_id_fkey'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shops_owner_user_id_fkey') THEN
     ALTER TABLE shops
       ADD CONSTRAINT shops_owner_user_id_fkey
       FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL;
   END IF;
 END $$;
 
--- Platform identity (Option A): a superadmin is a user with platform-level capabilities.
-CREATE TABLE IF NOT EXISTS superadmins (
+CREATE TABLE IF NOT EXISTS categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  parent_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
   is_active BOOLEAN NOT NULL DEFAULT true,
-  otp_hash TEXT,
-  otp_expires_at TIMESTAMPTZ,
-  otp_used_at TIMESTAMPTZ,
-  otp_attempts INT NOT NULL DEFAULT 0,
-  otp_last_sent_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (shop_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_categories_shop_parent ON categories(shop_id, parent_id);
+
+-- Upgrade: category audit columns (present inline on fresh CREATE).
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE TABLE IF NOT EXISTS products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  base_unit TEXT NOT NULL,
+  status TEXT NOT NULL,
+  availability TEXT NOT NULL DEFAULT 'in_stock' CONSTRAINT products_availability_chk
+    CHECK (availability IN ('in_stock', 'out_of_stock', 'unknown')),
+  price_minor_per_unit BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (shop_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_shop_category ON products(shop_id, category_id) WHERE status = 'active';
+
+-- Upgrade: columns folded into CREATE on fresh installs.
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS inventory_tracking_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS availability TEXT NOT NULL DEFAULT 'in_stock';
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'products_availability_chk') THEN
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'availability'
+    ) THEN
+      ALTER TABLE products
+        ADD CONSTRAINT products_availability_chk
+        CHECK (availability IN ('in_stock', 'out_of_stock', 'unknown'));
+    END IF;
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  track_type TEXT NOT NULL,
+  stock_quantity NUMERIC(18, 4) NOT NULL,
+  UNIQUE (shop_id, product_id)
 );
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -243,18 +253,7 @@ DECLARE
   loc_lat DOUBLE PRECISION;
   loc_lng DOUBLE PRECISION;
 BEGIN
-  -- Ensure columns exist if this script runs against a DB created before the change.
-  ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT false;
-  ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false;
-  ALTER TABLE shops ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
-  ALTER TABLE shops ADD COLUMN IF NOT EXISTS address_id UUID;
-
-  ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT false;
-  ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false;
-  ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
-  ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
-  ALTER TABLE customers ADD COLUMN IF NOT EXISTS address_id UUID;
-
+  -- Upgrade-only: legacy JSONB / old column shapes. On a fresh DB from this file, most branches no-op.
   IF to_regclass('public.shop_staff') IS NOT NULL THEN
     ALTER TABLE shop_staff ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE shop_staff ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false;
@@ -281,6 +280,10 @@ BEGIN
     SET deleted_at = COALESCE(deleted_at, updated_at, now())
     WHERE is_deleted = true AND deleted_at IS NULL;
 
+  -- Ensure columns exist if this script runs against a DB created before the change.
+  ALTER TABLE shops ADD COLUMN IF NOT EXISTS address_id UUID;
+  ALTER TABLE customers ADD COLUMN IF NOT EXISTS address_id UUID;
+
   -- Add FKs if missing (idempotent).
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shops_address_id_fkey') THEN
     ALTER TABLE shops
@@ -305,8 +308,8 @@ BEGIN
       loc_lng := NULL;
       IF r_shop.location IS NOT NULL THEN
         BEGIN
-          loc_lat := NULLIF((r_shop.location->>''lat''), '''')::double precision;
-          loc_lng := NULLIF((r_shop.location->>''lng''), '''')::double precision;
+          loc_lat := NULLIF((r_shop.location->>'lat'), '')::double precision;
+          loc_lng := NULLIF((r_shop.location->>'lng'), '')::double precision;
         EXCEPTION WHEN others THEN
           loc_lat := NULL;
           loc_lng := NULL;
@@ -395,13 +398,15 @@ CREATE TABLE IF NOT EXISTS customer_shop_memberships (
   shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   is_blocked BOOLEAN NOT NULL DEFAULT false,
   is_deleted BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
   UNIQUE (shop_id, customer_id)
 );
+
+-- JSONB defaults are set inline in CREATE TABLE to keep this file idempotent.
 
 CREATE INDEX IF NOT EXISTS idx_customer_shop_memberships_shop
   ON customer_shop_memberships(shop_id, customer_id)
@@ -491,7 +496,8 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE TABLE IF NOT EXISTS entity_images (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('shop', 'product', 'picker')),
+  entity_type TEXT NOT NULL CONSTRAINT entity_images_entity_type_check
+    CHECK (entity_type IN ('shop', 'picker', 'category')),
   entity_id UUID NOT NULL,
   media_asset_id UUID NOT NULL REFERENCES media_assets(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -500,6 +506,37 @@ CREATE TABLE IF NOT EXISTS entity_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_images_media_asset ON entity_images(media_asset_id);
+
+-- Product gallery (1–6 images per product; categories still use single `entity_images` row).
+CREATE TABLE IF NOT EXISTS product_images (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  media_asset_id UUID NOT NULL REFERENCES media_assets(id) ON DELETE RESTRICT,
+  sort_order SMALLINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT product_images_sort_order_chk CHECK (sort_order >= 0 AND sort_order < 6),
+  CONSTRAINT product_images_shop_product_sort_uidx UNIQUE (shop_id, product_id, sort_order),
+  CONSTRAINT product_images_shop_product_asset_uidx UNIQUE (shop_id, product_id, media_asset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_images_shop_product_sort
+  ON product_images (shop_id, product_id, sort_order);
+
+INSERT INTO product_images (id, shop_id, product_id, media_asset_id, sort_order, created_at, updated_at)
+SELECT gen_random_uuid(), e.shop_id, e.entity_id, e.media_asset_id, 0, e.created_at, e.updated_at
+FROM entity_images e
+WHERE e.entity_type = 'product'
+ON CONFLICT (shop_id, product_id, sort_order) DO NOTHING;
+
+DELETE FROM entity_images WHERE entity_type = 'product';
+
+-- Upgrade: widen `entity_type` when table predates `category` (fresh CREATE already includes it).
+ALTER TABLE entity_images DROP CONSTRAINT IF EXISTS entity_images_entity_type_check;
+ALTER TABLE entity_images
+  ADD CONSTRAINT entity_images_entity_type_check
+  CHECK (entity_type IN ('shop', 'picker', 'category'));
 
 -- RLS for tenant isolation.
 CREATE SCHEMA IF NOT EXISTS app;
@@ -581,6 +618,11 @@ CREATE POLICY entity_images_tenant_isolation ON entity_images
 USING (shop_id = app.current_shop_uuid())
 WITH CHECK (shop_id = app.current_shop_uuid());
 
+DROP POLICY IF EXISTS product_images_tenant_isolation ON product_images;
+CREATE POLICY product_images_tenant_isolation ON product_images
+USING (shop_id = app.current_shop_uuid())
+WITH CHECK (shop_id = app.current_shop_uuid());
+
 ALTER TABLE categories FORCE ROW LEVEL SECURITY;
 ALTER TABLE products FORCE ROW LEVEL SECURITY;
 ALTER TABLE inventory_items FORCE ROW LEVEL SECURITY;
@@ -590,3 +632,191 @@ ALTER TABLE cart_items FORCE ROW LEVEL SECURITY;
 ALTER TABLE orders FORCE ROW LEVEL SECURITY;
 ALTER TABLE order_items FORCE ROW LEVEL SECURITY;
 ALTER TABLE entity_images FORCE ROW LEVEL SECURITY;
+ALTER TABLE product_images FORCE ROW LEVEL SECURITY;
+
+-- List/filter performance (shop-scoped partial / composite).
+CREATE INDEX IF NOT EXISTS idx_products_shop_status_created
+  ON products (shop_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_categories_shop_created
+  ON categories (shop_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_products_shop_name_lower
+  ON products (shop_id, lower(name));
+-- Storefront filters: active products by availability + sort by created_at (partial keeps index small).
+CREATE INDEX IF NOT EXISTS idx_products_shop_active_availability_created
+  ON products (shop_id, availability, created_at DESC)
+  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_categories_shop_name_lower
+  ON categories (shop_id, lower(name));
+
+-- Resolve shop_staff by globally unique staff_login_code when HTTP request has no shop context (RLS would otherwise hide rows).
+CREATE OR REPLACE FUNCTION app.lookup_shop_staff_by_login_code(p_code integer)
+RETURNS TABLE (
+  user_id uuid,
+  shop_id uuid,
+  role text,
+  email text,
+  phone text,
+  password_hash text,
+  staff_login_code integer
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT s.user_id, s.shop_id, s.role, u.email, u.phone, u.password_hash, u.staff_login_code
+  FROM shop_staff s
+  JOIN users u ON u.id = s.user_id
+  WHERE s.is_active = true
+    AND u.is_active = true
+    AND u.staff_login_code = p_code
+    AND s.role <> 'picker';
+$$;
+
+REVOKE ALL ON FUNCTION app.lookup_shop_staff_by_login_code(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.lookup_shop_staff_by_login_code(integer) TO PUBLIC;
+
+-- Cross-shop product gallery reuse (same slug): pick the product with the most gallery images, tie-break by latest image activity.
+CREATE OR REPLACE FUNCTION app.find_fallback_product_gallery_ids_by_slug(p_slug text)
+RETURNS uuid[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_norm text := lower(trim(p_slug));
+  v_pid uuid;
+  v_ids uuid[];
+BEGIN
+  IF v_norm = '' THEN
+    RETURN ARRAY[]::uuid[];
+  END IF;
+
+  SELECT wc.product_id INTO v_pid
+  FROM (
+    SELECT p.id AS product_id,
+           COUNT(pi.id) AS image_cnt,
+           MAX(pi.updated_at) AS gallery_max_updated
+    FROM products p
+    JOIN product_images pi ON pi.product_id = p.id AND pi.shop_id = p.shop_id
+    WHERE lower(p.slug) = v_norm
+    GROUP BY p.id
+  ) wc
+  ORDER BY wc.image_cnt DESC, wc.gallery_max_updated DESC NULLS LAST, wc.product_id
+  LIMIT 1;
+
+  IF v_pid IS NULL THEN
+    RETURN ARRAY[]::uuid[];
+  END IF;
+
+  SELECT array_agg(sub.media_asset_id ORDER BY sub.sort_order)
+  INTO v_ids
+  FROM (
+    SELECT pi.media_asset_id, pi.sort_order
+    FROM product_images pi
+    WHERE pi.product_id = v_pid
+    ORDER BY pi.sort_order ASC
+    LIMIT 6
+  ) sub;
+
+  RETURN COALESCE(v_ids, ARRAY[]::uuid[]);
+END;
+$$;
+
+DO $$
+DECLARE
+  tbl_owner name;
+BEGIN
+  SELECT pg_catalog.pg_get_userbyid(c.relowner)::name INTO STRICT tbl_owner
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relname = 'product_images'
+    AND c.relkind = 'r'
+  LIMIT 1;
+  EXECUTE format(
+    'ALTER FUNCTION app.find_fallback_product_gallery_ids_by_slug(text) OWNER TO %I',
+    tbl_owner
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    EXECUTE 'ALTER FUNCTION app.find_fallback_product_gallery_ids_by_slug(text) OWNER TO postgres';
+END $$;
+
+ALTER FUNCTION app.find_fallback_product_gallery_ids_by_slug(text) SET row_security = off;
+
+REVOKE ALL ON FUNCTION app.find_fallback_product_gallery_ids_by_slug(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.find_fallback_product_gallery_ids_by_slug(text) TO PUBLIC;
+
+-- Cross-shop catalog image reuse: RLS on entity_images/categories/products would hide other tenants.
+-- FORCE RLS + session `app.current_shop_id` means policies still filter by shop unless row security is off
+-- *for the table owner*; align function owner to `entity_images` (DO block below) after CREATE.
+CREATE OR REPLACE FUNCTION app.find_fallback_media_asset_id_by_slug(p_entity_type text, p_slug text)
+RETURNS uuid
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_id uuid;
+  v_norm text := lower(trim(p_slug));
+  v_gallery uuid[];
+BEGIN
+  -- Do not use SET/SET LOCAL here: STABLE functions cannot execute SET (0A000). Row security is disabled
+  -- for this call via the function attributes `SET row_security = off` below and on CREATE, plus owner
+  -- alignment to `entity_images` so FORCE RLS policies are skipped for those reads.
+  IF v_norm = '' OR p_entity_type NOT IN ('category', 'product') THEN
+    RETURN NULL;
+  END IF;
+  IF p_entity_type = 'category' THEN
+    SELECT m.id INTO v_id
+    FROM entity_images e
+    JOIN media_assets m ON m.id = e.media_asset_id
+    JOIN categories c ON c.id = e.entity_id
+    WHERE e.entity_type = 'category'
+      AND lower(c.slug) = v_norm
+    ORDER BY e.updated_at DESC NULLS LAST
+    LIMIT 1;
+    RETURN v_id;
+  END IF;
+  -- Products use `product_images`; single-asset fallback is primary (lowest sort_order) of cross-shop gallery.
+  v_gallery := app.find_fallback_product_gallery_ids_by_slug(p_slug);
+  IF v_gallery IS NOT NULL AND cardinality(v_gallery) >= 1 THEN
+    RETURN v_gallery[1];
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+-- Under FORCE ROW LEVEL SECURITY, `SET row_security = off` only skips policies for the *table owner*.
+-- If this function is owned by `postgres` but `public.entity_images` is owned by another role (common on
+-- hosted Postgres), policies still run and `shop_id = app.current_shop_uuid()` hides every other tenant.
+-- Align function owner to `entity_images` so the fallback SELECT can see all shops.
+DO $$
+DECLARE
+  tbl_owner name;
+BEGIN
+  SELECT pg_catalog.pg_get_userbyid(c.relowner)::name INTO STRICT tbl_owner
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relname = 'entity_images'
+    AND c.relkind = 'r'
+  LIMIT 1;
+  EXECUTE format(
+    'ALTER FUNCTION app.find_fallback_media_asset_id_by_slug(text, text) OWNER TO %I',
+    tbl_owner
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    EXECUTE 'ALTER FUNCTION app.find_fallback_media_asset_id_by_slug(text, text) OWNER TO postgres';
+END $$;
+
+ALTER FUNCTION app.find_fallback_media_asset_id_by_slug(text, text) SET row_security = off;
+
+REVOKE ALL ON FUNCTION app.find_fallback_media_asset_id_by_slug(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.find_fallback_media_asset_id_by_slug(text, text) TO PUBLIC;

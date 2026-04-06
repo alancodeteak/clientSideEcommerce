@@ -31,7 +31,8 @@ export function loginCustomer({ authRepo }) {
 
     const accessToken = signCustomerAccessToken({
       userId: user.id,
-      customerId: customer.id
+      customerId: customer.id,
+      shopId: shopIds.length === 1 ? shopIds[0] : undefined
     });
 
     return {

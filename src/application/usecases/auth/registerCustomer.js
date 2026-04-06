@@ -24,7 +24,7 @@ export function registerCustomer({ authRepo }) {
 
     if (!existing) {
       const password_hash = await hashPassword(password);
-      const user = await authRepo.insertUser(client, { email, password_hash, registration_source: "password" });
+      const user = await authRepo.insertUser(client, { email, password_hash });
       const customer = await authRepo.insertCustomer(client, {
         user_id: user.id,
         display_name: displayName ?? null
@@ -75,7 +75,7 @@ export function registerCustomer({ authRepo }) {
         throw new AuthError("Invalid credentials");
       }
       if (membership.is_active && !membership.is_deleted) {
-        throw new ConflictError("Already registered for this shop");
+        throw new ConflictError("Unable to complete registration for this shop.");
       }
       await authRepo.reactivateMembership(client, membership.id);
     } else {

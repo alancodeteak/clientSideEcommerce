@@ -11,7 +11,7 @@ describe("HTTP errors", () => {
 
   it("returns 404 for unknown routes", async () => {
     const res = await request(app).get("/api/does-not-exist").expect(404);
-    expect(res.body.error?.code).toBe("NOT_FOUND");
+    expect(res.body.error?.code).toBe("ROUTE_NOT_FOUND");
   });
 
   it("returns 400 INVALID_JSON for malformed JSON body", async () => {

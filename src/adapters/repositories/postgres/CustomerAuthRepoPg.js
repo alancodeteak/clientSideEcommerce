@@ -1,6 +1,18 @@
 import { CustomerAuthRepo } from "../../../application/ports/repositories/CustomerAuthRepo.js";
 import { NotFoundError } from "../../../domain/errors/NotFoundError.js";
+import { pool } from "../../../infra/db/pool.js";
 import { ValidationError } from "../../../domain/errors/ValidationError.js";
+
+/** @param {{ password_hash: string|null }|null|undefined} row */
+function registrationSourceFromUserRow(row) {
+  if (!row) return "password";
+  return row.password_hash == null ? "google" : "password";
+}
+
+function withRegistrationSource(row) {
+  if (!row) return null;
+  return { ...row, registration_source: registrationSourceFromUserRow(row) };
+}
 
 const ADDRESS_API_TO_DB = {
   line1: "line1",
@@ -27,15 +39,37 @@ export class CustomerAuthRepoPg extends CustomerAuthRepo {
     return rows[0] ?? null;
   }
 
+  /** @param {string} userId @param {string} customerId */
+  async isCustomerSessionValid(userId, customerId) {
+    const client = await pool.connect();
+    try {
+      const { rows } = await client.query(
+        `SELECT 1
+           FROM users u
+           JOIN customers c ON c.user_id = u.id
+          WHERE u.id = $1
+            AND c.id = $2
+            AND u.is_active = true
+            AND c.is_blocked = false
+            AND c.is_deleted = false
+          LIMIT 1`,
+        [userId, customerId]
+      );
+      return rows.length > 0;
+    } finally {
+      client.release();
+    }
+  }
+
   /** @param {import("pg").PoolClient} client */
   async getUserByEmail(client, email) {
     const { rows } = await client.query(
-      `SELECT id, email, phone, password_hash, registration_source, is_active
+      `SELECT id, email, phone, password_hash, is_active
          FROM users
         WHERE lower(email) = lower($1)`,
       [email]
     );
-    return rows[0] ?? null;
+    return withRegistrationSource(rows[0]);
   }
 
   /** @param {import("pg").PoolClient} client */
@@ -269,14 +303,14 @@ export class CustomerAuthRepoPg extends CustomerAuthRepo {
   }
 
   /** @param {import("pg").PoolClient} client */
-  async insertUser(client, { email, password_hash, registration_source = "password" }) {
+  async insertUser(client, { email, password_hash }) {
     const { rows } = await client.query(
-      `INSERT INTO users (email, password_hash, registration_source)
-       VALUES ($1, $2, $3)
-       RETURNING id, email, registration_source`,
-      [email, password_hash, registration_source]
+      `INSERT INTO users (email, password_hash)
+       VALUES ($1, $2)
+       RETURNING id, email, password_hash`,
+      [email, password_hash]
     );
-    return rows[0];
+    return withRegistrationSource(rows[0]);
   }
 
   /** @param {import("pg").PoolClient} client */

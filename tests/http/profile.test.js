@@ -63,4 +63,13 @@ describe("PATCH /api/me/profile (validation)", () => {
       .expect(400);
     expect(res.body.error?.code).toBe("VALIDATION_ERROR");
   });
+
+  it("returns 400 when address is an empty object", async () => {
+    const res = await request(app)
+      .patch("/api/me/profile")
+      .set("Authorization", `Bearer ${customerBearer()}`)
+      .send({ address: {} })
+      .expect(400);
+    expect(res.body.error?.code).toBe("VALIDATION_ERROR");
+  });
 });

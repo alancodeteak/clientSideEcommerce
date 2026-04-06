@@ -110,11 +110,13 @@
           ],
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Cookie", "value": "better-auth.session_token=PASTE_VALUE_AFTER_BROWSER_OAUTH", "description": "Copy from browser DevTools → Application → Cookies, or use Postman Interceptor." }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}"
+            },
             "url": "{{baseUrl}}/api/auth/oauth/jwt",
-            "description": "Returns a storefront **JWT** like **login** (`shopIds`, `profile`, etc.), using an existing **Better Auth** session. Postman has no cookie until you paste **`better-auth.session_token`** from the browser after Google sign-in. Same-origin browser **`fetch(..., { credentials: 'include' })`** does not need a manual Cookie header."
+            "description": "**Insecure / disabled by default.** Body: `{ \"email\" }` only. Returns **`403`** unless **`ALLOW_EMAIL_ONLY_JWT_EXCHANGE=true`** in server `.env` (never in production).\n\nWhen enabled: same response shape as **login** if the email exists as a storefront customer. Prefer **`POST /api/auth/login`** in normal flows."
           },
           "response": []
         },
@@ -194,6 +196,25 @@
             },
             "url": "{{baseUrl}}/api/oauth/sign-in/social",
             "description": "Starts Google OAuth. **`additionalData.shopId`** (shop UUID) is optional: after Google returns, the API creates/links **`users` / `customers` / `customer_shop_memberships`** like register (no password; Google does not provide one). Omit **`additionalData`** if you only want Better Auth sign-in.\n\n**`disableRedirect`: true** is for Postman (JSON **`url`**). For a real browser flow, omit it and start sign-in from the app with **`credentials: \"include\"`** so the OAuth state cookie is set — do not paste the Google URL from Postman into the browser (that causes **`state_mismatch`**).\n\nRequires **GOOGLE_CLIENT_ID** / **GOOGLE_CLIENT_SECRET**. Redirect URI: `{{baseUrl}}/api/oauth/callback/google`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Shops",
+      "item": [
+        {
+          "name": "POST /api/shops/:shopId/service-area/check",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 12.9716,\n  \"lng\": 77.5946\n}"
+            },
+            "url": "{{baseUrl}}/api/shops/{{shopId}}/service-area/check",
+            "description": "Returns **`inServiceArea`**, **`distanceM`**, **`maxRadiusM`**, **`code`**, **`message`**. Hub = shop linked **`addresses.lat`/`lng`**. Radius from env **`SERVICE_AREA_RADIUS_METERS`** (default 5000 m). Set **`shopId`** after register or from DB."
           },
           "response": []
         }

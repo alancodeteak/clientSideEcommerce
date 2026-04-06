@@ -1,12 +1,15 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
+import { env } from "../../../config/env.js";
 import { healthController } from "../controllers/healthController.js";
 import { catalogController } from "../controllers/catalogController.js";
 import { authController } from "../controllers/authController.js";
 import { profileController } from "../controllers/profileController.js";
+import { shopController } from "../controllers/shopController.js";
 import { validate } from "../middleware/validate.js";
-import { requireCustomerJwt } from "../middleware/requireCustomerJwt.js";
-import { registerBodySchema, loginBodySchema } from "../validations/authSchemas.js";
+import { registerBodySchema, loginBodySchema, oauthJwtBodySchema } from "../validations/authSchemas.js";
 import { patchProfileBodySchema } from "../validations/profileSchemas.js";
+import { shopIdParamSchema, serviceAreaCheckBodySchema } from "../validations/shopSchemas.js";
 
 /**
  * @param {import("../../../main/composition.js").AppContext} ctx
@@ -14,18 +17,49 @@ import { patchProfileBodySchema } from "../validations/profileSchemas.js";
 export function createRoutes(ctx) {
   const r = Router();
 
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: env.NODE_ENV === "test" ? 10_000 : 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => {
+      res.status(429).json({
+        error: {
+          code: "TOO_MANY_REQUESTS",
+          message: "Too many requests. Try again later."
+        }
+      });
+    }
+  });
+
   r.get("/health", healthController.get(ctx));
 
-  r.post("/api/auth/register", validate({ body: registerBodySchema }), authController.register(ctx));
-  r.post("/api/auth/login", validate({ body: loginBodySchema }), authController.login(ctx));
-  r.post("/api/auth/oauth/jwt", authController.oauthJwt(ctx));
+  r.post(
+    "/api/auth/register",
+    authLimiter,
+    validate({ body: registerBodySchema }),
+    authController.register(ctx)
+  );
+  r.post("/api/auth/login", authLimiter, validate({ body: loginBodySchema }), authController.login(ctx));
+  r.post(
+    "/api/auth/oauth/jwt",
+    authLimiter,
+    validate({ body: oauthJwtBodySchema }),
+    authController.oauthJwt(ctx)
+  );
 
-  r.get("/api/me/profile", requireCustomerJwt(), profileController.get(ctx));
+  r.get("/api/me/profile", ctx.requireCustomerJwt, profileController.get(ctx));
   r.patch(
     "/api/me/profile",
-    requireCustomerJwt(),
+    ctx.requireCustomerJwt,
     validate({ body: patchProfileBodySchema }),
     profileController.patch(ctx)
+  );
+
+  r.post(
+    "/api/shops/:shopId/service-area/check",
+    validate({ params: shopIdParamSchema, body: serviceAreaCheckBodySchema }),
+    shopController.checkServiceArea(ctx)
   );
 
   r.get("/api/catalog/categories", catalogController.listCategories(ctx));
