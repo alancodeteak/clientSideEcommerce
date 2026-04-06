@@ -103,6 +103,44 @@ export class CustomerAuthRepo {
   }
 
   /**
+   * Customer + optional nested address (API-shaped address keys).
+   * @param {import("pg").PoolClient} _client
+   * @param {string} _customerId
+   * @returns {Promise<{
+   *   id: string,
+   *   user_id: string,
+   *   display_name: string|null,
+   *   is_blocked: boolean,
+   *   is_deleted: boolean,
+   *   address: null | {
+   *     line1: string|null, line2: string|null, landmark: string|null,
+   *     city: string|null, state: string|null, postalCode: string|null,
+   *     country: string|null, lat: number|null, lng: number|null, raw: string|null
+   *   }
+   * }|null>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async getCustomerProfileByCustomerId(_client, _customerId) {
+    throw new Error("Not implemented");
+  }
+
+  /**
+   * Partial profile update inside an open transaction (caller provides `withTx`).
+   * @param {import("pg").PoolClient} _client
+   * @param {{
+   *   customerId: string,
+   *   userId: string,
+   *   displayName?: string|null,
+   *   addressPatch?: Record<string, unknown>
+   * }} _patch
+   * @returns {Promise<void>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async patchCustomerProfile(_client, _patch) {
+    throw new Error("Not implemented");
+  }
+
+  /**
    * @param {import("pg").PoolClient} _client
    * @param {{ email: string, password_hash: string|null, registration_source?: 'password'|'google' }} _row
    * @returns {Promise<{ id: string, email: string|null }>}

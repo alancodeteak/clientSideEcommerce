@@ -7,6 +7,8 @@ import { createGetHealth } from "../application/usecases/health/getHealth.js";
 import { registerCustomer } from "../application/usecases/auth/registerCustomer.js";
 import { loginCustomer } from "../application/usecases/auth/loginCustomer.js";
 import { exchangeOAuthSessionForJwt } from "../application/usecases/auth/exchangeOAuthSessionForJwt.js";
+import { getCustomerProfile } from "../application/usecases/profile/getCustomerProfile.js";
+import { updateCustomerProfile } from "../application/usecases/profile/updateCustomerProfile.js";
 import { auth } from "../infra/auth/betterAuth.js";
 
 /**
@@ -25,7 +27,9 @@ export function createAppContext() {
     listProducts: createListProducts({ catalogRepo }),
     registerCustomer: registerCustomer({ authRepo: customerAuthRepo }),
     loginCustomer: loginCustomer({ authRepo: customerAuthRepo }),
-    exchangeOAuthSessionForJwt: exchangeOAuthSessionForJwt({ authRepo: customerAuthRepo })
+    exchangeOAuthSessionForJwt: exchangeOAuthSessionForJwt({ authRepo: customerAuthRepo }),
+    getCustomerProfile: getCustomerProfile({ authRepo: customerAuthRepo }),
+    updateCustomerProfile: updateCustomerProfile({ authRepo: customerAuthRepo })
   };
 }
 

@@ -95,6 +95,8 @@ If the email already exists, the same password must be supplied; the service eit
 
 **200** — `{ accessToken, role, user, customer, shopIds, profile }` where `shopIds` lists active membership shop UUIDs (empty if none) and `profile` lists the same shops with `name` (`customers.display_name`), `shopName`, `shopId`, `shopSlug`. JWT has no `shopId` claim on login; use a value from `shopIds` for catalog query/header.
 
+**Profile (authenticated)** — `GET /api/me/profile` and `PATCH /api/me/profile` with header `Authorization: Bearer <accessToken>`. Response includes `customer` (`id`, `displayName`) and `address` (normalized fields from `addresses`, or `null`). See [docs/client-storefront-api.md](../docs/client-storefront-api.md).
+
 ### Catalog (tenant-scoped)
 
 - `GET /api/catalog/items?shopId=<uuid>` — active products for that shop (or header **`x-shop-id`**)

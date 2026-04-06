@@ -117,6 +117,43 @@
             "description": "Returns a storefront **JWT** like **login** (`shopIds`, `profile`, etc.), using an existing **Better Auth** session. Postman has no cookie until you paste **`better-auth.session_token`** from the browser after Google sign-in. Same-origin browser **`fetch(..., { credentials: 'include' })`** does not need a manual Cookie header."
           },
           "response": []
+        },
+        {
+          "name": "GET /api/me/profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "description": "From Register / Login / OAuth JWT exchange."
+              }
+            ],
+            "url": "{{baseUrl}}/api/me/profile",
+            "description": "Authenticated customer profile: **`customer.displayName`** and **`address`** (from `addresses`, or `null`).\n\n**401** if token missing/invalid or customer blocked."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /api/me/profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "description": "From Register / Login / OAuth JWT exchange."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"displayName\": \"Updated Name\",\n  \"address\": {\n    \"city\": \"London\",\n    \"postalCode\": \"SW1A 1AA\",\n    \"line1\": \"10 Example Street\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/me/profile",
+            "description": "Partial update: only send fields to change. Nested **`address`** keys merge into the linked `addresses` row (or create one). **`lat`/`lng`** must both be set or both `null`.\n\n**200** — same JSON shape as GET."
+          },
+          "response": []
         }
       ]
     },
