@@ -62,6 +62,16 @@ export class CustomerAuthRepo {
 
   /**
    * @param {import("pg").PoolClient} _client
+   * @param {string} _userId
+   * @returns {Promise<UserRow|null>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async getUserById(_client, _userId) {
+    throw new Error("Not implemented");
+  }
+
+  /**
+   * @param {import("pg").PoolClient} _client
    * @param {string} _email
    * @returns {Promise<UserRow|null>}
    */

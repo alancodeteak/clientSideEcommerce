@@ -9,6 +9,8 @@ import { createGetHealth } from "../application/usecases/health/getHealth.js";
 import { registerCustomer } from "../application/usecases/auth/registerCustomer.js";
 import { loginCustomer } from "../application/usecases/auth/loginCustomer.js";
 import { exchangeOAuthSessionForJwt } from "../application/usecases/auth/exchangeOAuthSessionForJwt.js";
+import { buildStorefrontSessionResponse } from "../application/usecases/auth/buildStorefrontSessionResponse.js";
+import { provisionCustomerForOAuthShop } from "../application/usecases/auth/provisionCustomerForOAuthShop.js";
 import { getCustomerProfile } from "../application/usecases/profile/getCustomerProfile.js";
 import { updateCustomerProfile } from "../application/usecases/profile/updateCustomerProfile.js";
 import { createCheckShopServiceArea } from "../application/usecases/shops/checkShopServiceArea.js";
@@ -37,6 +39,9 @@ export function createAppContext() {
     registerCustomer: registerCustomer({ authRepo: customerAuthRepo }),
     loginCustomer: loginCustomer({ authRepo: customerAuthRepo }),
     exchangeOAuthSessionForJwt: exchangeOAuthSessionForJwt({ authRepo: customerAuthRepo }),
+    provisionCustomerForOAuthShop: provisionCustomerForOAuthShop({ authRepo: customerAuthRepo }),
+    buildStorefrontSessionResponse: (client, userId) =>
+      buildStorefrontSessionResponse(customerAuthRepo, client, userId),
     getCustomerProfile: getCustomerProfile({ authRepo: customerAuthRepo }),
     updateCustomerProfile: updateCustomerProfile({ authRepo: customerAuthRepo }),
     checkShopServiceArea: createCheckShopServiceArea({

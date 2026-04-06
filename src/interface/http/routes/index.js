@@ -6,8 +6,10 @@ import { catalogController } from "../controllers/catalogController.js";
 import { authController } from "../controllers/authController.js";
 import { profileController } from "../controllers/profileController.js";
 import { shopController } from "../controllers/shopController.js";
+import { oauthController } from "../controllers/oauthController.js";
 import { validate } from "../middleware/validate.js";
 import { registerBodySchema, loginBodySchema, oauthJwtBodySchema } from "../validations/authSchemas.js";
+import { oauthDevGoogleStartQuerySchema, oauthSocialBodySchema } from "../validations/oauthSchemas.js";
 import { patchProfileBodySchema } from "../validations/profileSchemas.js";
 import { shopIdParamSchema, serviceAreaCheckBodySchema } from "../validations/shopSchemas.js";
 
@@ -47,6 +49,21 @@ export function createRoutes(ctx) {
     validate({ body: oauthJwtBodySchema }),
     authController.oauthJwt(ctx)
   );
+
+  r.get("/api/oauth/ok", oauthController.ok());
+  r.get(
+    "/api/oauth/dev/google-start",
+    authLimiter,
+    validate({ query: oauthDevGoogleStartQuerySchema }),
+    oauthController.devGoogleStart(ctx)
+  );
+  r.post(
+    "/api/oauth/sign-in/social",
+    authLimiter,
+    validate({ body: oauthSocialBodySchema }),
+    oauthController.socialSignIn(ctx)
+  );
+  r.get("/api/oauth/callback/google", authLimiter, oauthController.googleCallback(ctx));
 
   r.get("/api/me/profile", ctx.requireCustomerJwt, profileController.get(ctx));
   r.patch(

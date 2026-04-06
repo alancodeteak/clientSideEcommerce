@@ -62,6 +62,17 @@ export class CustomerAuthRepoPg extends CustomerAuthRepo {
   }
 
   /** @param {import("pg").PoolClient} client */
+  async getUserById(client, userId) {
+    const { rows } = await client.query(
+      `SELECT id, email, phone, password_hash, is_active
+         FROM users
+        WHERE id = $1`,
+      [userId]
+    );
+    return withRegistrationSource(rows[0]);
+  }
+
+  /** @param {import("pg").PoolClient} client */
   async getUserByEmail(client, email) {
     const { rows } = await client.query(
       `SELECT id, email, phone, password_hash, is_active

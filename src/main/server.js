@@ -1,4 +1,5 @@
 import express from "express";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
@@ -23,6 +24,7 @@ export function createServer() {
     })
   );
 
+  app.use(cookieParser());
   app.use(express.json({ limit: "1mb" }));
 
   app.use(createRoutes(ctx));

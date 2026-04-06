@@ -1,6 +1,8 @@
 import { env } from "../../../config/env.js";
 import { ForbiddenError } from "../../../domain/errors/ForbiddenError.js";
+import { ValidationError } from "../../../domain/errors/ValidationError.js";
 import { withClient, withTx } from "../../../infra/db/tx.js";
+import { oauthExchangeCookieOptions, verifyOAuthExchangeCookie } from "../../../infra/oauth/oauthExchangeCookie.js";
 
 export const authController = {
   register: (ctx) => async (req, res, next) => {
@@ -22,13 +24,40 @@ export const authController = {
   },
 
   oauthJwt: (ctx) => async (req, res, next) => {
+    const cookieOpts = oauthExchangeCookieOptions();
     try {
+      const rawCookie = req.cookies?.storefront_oauth_exchange;
+      if (rawCookie) {
+        try {
+          const payload = verifyOAuthExchangeCookie(rawCookie);
+          const result = await withClient((client) =>
+            ctx.buildStorefrontSessionResponse(client, payload.sub)
+          );
+          res.clearCookie("storefront_oauth_exchange", cookieOpts);
+          return res.json(result);
+        } catch {
+          res.clearCookie("storefront_oauth_exchange", cookieOpts);
+          return res.status(401).json({
+            error: {
+              code: "UNAUTHORIZED",
+              message: "OAuth exchange cookie expired or invalid. Complete Google sign-in again."
+            }
+          });
+        }
+      }
+
       if (!env.ALLOW_EMAIL_ONLY_JWT_EXCHANGE) {
         throw new ForbiddenError(
-          "Email-only JWT exchange is disabled. Use email/password login or set ALLOW_EMAIL_ONLY_JWT_EXCHANGE only in trusted non-production environments."
+          "JWT exchange requires a Google sign-in cookie or enable ALLOW_EMAIL_ONLY_JWT_EXCHANGE only in trusted non-production environments."
         );
       }
-      const result = await withClient((client) => ctx.exchangeOAuthSessionForJwt(client, req.body.email));
+      const email = req.body.email;
+      if (!email) {
+        throw new ValidationError(
+          "email is required for email-only JWT exchange (or complete Google OAuth and send storefront_oauth_exchange cookie)."
+        );
+      }
+      const result = await withClient((client) => ctx.exchangeOAuthSessionForJwt(client, email));
       res.json(result);
     } catch (err) {
       next(err);

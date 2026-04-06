@@ -14,6 +14,9 @@ export const loginBodySchema = z.object({
   password: passwordSchema
 });
 
-export const oauthJwtBodySchema = z.object({
-  email: z.string().email()
-});
+/** Body optional: `{}` when using `storefront_oauth_exchange` cookie after Google callback. */
+export const oauthJwtBodySchema = z
+  .object({
+    email: z.string().email().optional()
+  })
+  .strict();

@@ -1,9 +1,9 @@
 import { AuthError } from "../../../domain/errors/AuthError.js";
-import { signCustomerAccessToken } from "../../../infra/auth/jwt.js";
-import { buildProfileFromShops } from "./customerProfile.js";
+import { buildStorefrontSessionResponse } from "./buildStorefrontSessionResponse.js";
 
 /**
- * Compatibility endpoint: generate storefront JWT from an external identity email.
+ * Compatibility / dev-only: generate storefront JWT from email when explicitly allowed,
+ * or use `POST /api/auth/oauth/jwt` with the cookie set by `GET /api/oauth/callback/google`.
  * Uses only canonical schema tables (`users`, `customers`, memberships, shops).
  */
 export function exchangeOAuthSessionForJwt({ authRepo }) {
@@ -13,32 +13,6 @@ export function exchangeOAuthSessionForJwt({ authRepo }) {
       throw new AuthError("No storefront profile for this account");
     }
 
-    const customer = await authRepo.getCustomerByUserId(client, user.id);
-    if (!customer || customer.is_blocked || customer.is_deleted) {
-      throw new AuthError("Invalid credentials");
-    }
-
-    const shops = await authRepo.listActiveShopsForCustomer(client, customer.id);
-    const shopIds = shops.map((s) => s.id);
-    const profile = buildProfileFromShops(customer, shops);
-
-    const accessToken = signCustomerAccessToken({
-      userId: user.id,
-      customerId: customer.id,
-      shopId: shopIds.length === 1 ? shopIds[0] : undefined
-    });
-
-    return {
-      accessToken,
-      role: "customer",
-      user: {
-        id: user.id,
-        email: user.email,
-        registrationSource: user.registration_source
-      },
-      customer: { id: customer.id },
-      shopIds,
-      profile
-    };
+    return buildStorefrontSessionResponse(authRepo, client, user.id);
   };
 }

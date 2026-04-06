@@ -1,20 +1,16 @@
-import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import { env } from "../src/config/env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-if (!process.env.DATABASE_URL) {
-  // eslint-disable-next-line no-console
-  console.error("DATABASE_URL is required");
-  process.exit(1);
-}
-
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "development" ? { rejectUnauthorized: false } : { rejectUnauthorized: false }
+  connectionString: env.DATABASE_URL,
+  ssl: env.DATABASE_SSL_REJECT_UNAUTHORIZED
+    ? { rejectUnauthorized: true }
+    : { rejectUnauthorized: false }
 });
 
 const sqlPath = path.join(__dirname, "../migrations/001_deployment_postgresql.sql");
