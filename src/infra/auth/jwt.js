@@ -2,9 +2,8 @@ import jwt from "jsonwebtoken";
 import { env } from "../../config/env.js";
 
 /**
- * @param {{ userId: string, customerId: string, shopId?: string|null, role?: string }} claims
- * `shopId` is set on register for the target shop. Login / JWT exchange also set it when the
- * customer has exactly one active membership; otherwise omit so callers use `shopIds` + catalog headers.
+ * Purpose: This file creates and verifies JWT access tokens.
+ * It signs and verifies customer access tokens for this API.
  */
 export function signCustomerAccessToken({ userId, customerId, shopId, role = "customer" }) {
   const payload = { sub: userId, customerId, role };

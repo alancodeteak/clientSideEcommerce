@@ -11,12 +11,14 @@ export const registerBodySchema = z.object({
 
 export const loginBodySchema = z.object({
   email: z.string().email(),
-  password: passwordSchema
+  password: passwordSchema,
+  shopId: z.string().uuid().optional()
 });
 
 /** Body optional: `{}` when using `storefront_oauth_exchange` cookie after Google callback. */
 export const oauthJwtBodySchema = z
   .object({
-    email: z.string().email().optional()
+    email: z.string().email().optional(),
+    shopId: z.string().uuid().optional()
   })
   .strict();
