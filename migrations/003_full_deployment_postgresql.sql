@@ -447,7 +447,6 @@ CREATE TABLE IF NOT EXISTS carts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL,
-  status TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -471,7 +470,8 @@ CREATE TABLE IF NOT EXISTS orders (
   shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL,
   order_number TEXT NOT NULL,
-  status TEXT NOT NULL,
+  status TEXT NOT NULL CONSTRAINT orders_status_chk
+    CHECK (status IN ('pending', 'accepted', 'picking', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'rejected')),
   payment_method TEXT NOT NULL DEFAULT 'cod',
   subtotal_minor BIGINT NOT NULL,
   delivery_fee_minor BIGINT NOT NULL DEFAULT 0,
@@ -479,8 +479,12 @@ CREATE TABLE IF NOT EXISTS orders (
   currency TEXT NOT NULL DEFAULT 'INR',
   notes TEXT,
   placed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  accepted_at TIMESTAMPTZ,
+  out_for_delivery_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  rejected_at TIMESTAMPTZ,
   UNIQUE (shop_id, order_number)
-); 
+);
 
 CREATE INDEX IF NOT EXISTS idx_orders_shop_status_placed ON orders(shop_id, status, placed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_shop_customer_placed ON orders (shop_id, customer_id, placed_at DESC);
