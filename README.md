@@ -12,7 +12,7 @@ The database schema matches `migrations/001_deployment_postgresql.sql`. Apply it
 |--------|------|
 | `domain/` | Domain errors (`AppError`, `NotFoundError`, `ValidationError`, `AuthError`, `ConflictError`) |
 | `application/ports/` | Repository interfaces (contracts) |
-| `application/usecases/` | Application services (catalog, auth, profile, shops, health) |
+| `application/services/` | Application services (catalog, auth, profile, shops, health) |
 | `adapters/` | Postgres repositories |
 | `infra/db/` | Connection pool, transactions (`withTx` / `withClient`), tenant session helper |
 | `infra/security` | JWT (customer tokens), password hashing |

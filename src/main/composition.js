@@ -2,20 +2,20 @@ import { CatalogRepoPg } from "../adapters/repositories/postgres/CatalogRepoPg.j
 import { CustomerAuthRepoPg } from "../adapters/repositories/postgres/CustomerAuthRepoPg.js";
 import { ShopServiceAreaRepoPg } from "../adapters/repositories/postgres/ShopServiceAreaRepoPg.js";
 import { env } from "../config/env.js";
-import { createListCatalogItems } from "../application/usecases/catalog/listCatalogItems.js";
-import { createListCategories } from "../application/usecases/catalog/listCategories.js";
-import { createListProducts } from "../application/usecases/catalog/listProducts.js";
-import { createSearchCatalog } from "../application/usecases/catalog/searchCatalog.js";
-import { createGetHealth } from "../application/usecases/health/getHealth.js";
-import { registerCustomer } from "../application/usecases/auth/registerCustomer.js";
-import { loginCustomer } from "../application/usecases/auth/loginCustomer.js";
-import { exchangeOAuthSessionForJwt } from "../application/usecases/auth/exchangeOAuthSessionForJwt.js";
-import { buildStorefrontSessionResponse } from "../application/usecases/auth/buildStorefrontSessionResponse.js";
-import { provisionCustomerForOAuthShop } from "../application/usecases/auth/provisionCustomerForOAuthShop.js";
-import { getCustomerProfile } from "../application/usecases/profile/getCustomerProfile.js";
-import { updateCustomerProfile } from "../application/usecases/profile/updateCustomerProfile.js";
-import { createCheckShopServiceArea } from "../application/usecases/shops/checkShopServiceArea.js";
-import { createEnsureShopForCatalog } from "../application/usecases/catalog/ensureShopForCatalog.js";
+import { createListCatalogItems } from "../application/services/catalog/listCatalogItems.js";
+import { createListCategories } from "../application/services/catalog/listCategories.js";
+import { createListProducts } from "../application/services/catalog/listProducts.js";
+import { createSearchCatalog } from "../application/services/catalog/searchCatalog.js";
+import { createGetHealth } from "../application/services/health/getHealth.js";
+import { registerCustomer } from "../application/services/auth/registerCustomer.js";
+import { loginCustomer } from "../application/services/auth/loginCustomer.js";
+import { exchangeOAuthSessionForJwt } from "../application/services/auth/exchangeOAuthSessionForJwt.js";
+import { buildStorefrontSessionResponse } from "../application/services/auth/buildStorefrontSessionResponse.js";
+import { provisionCustomerForOAuthShop } from "../application/services/auth/provisionCustomerForOAuthShop.js";
+import { getCustomerProfile } from "../application/services/profile/getCustomerProfile.js";
+import { updateCustomerProfile } from "../application/services/profile/updateCustomerProfile.js";
+import { createCheckShopServiceArea } from "../application/services/shops/checkShopServiceArea.js";
+import { createEnsureShopForCatalog } from "../application/services/catalog/ensureShopForCatalog.js";
 import { createRequireCustomerJwt } from "../interface/http/middleware/requireCustomerJwt.js";
 
 export function createAppContext() {

@@ -1,7 +1,7 @@
--- Sole PostgreSQL migration for fresh deployment of the multi-tenant ecommerce schema.
--- Apply this entire file once per new database (e.g. psql -f 001_deployment_postgresql.sql).
--- Layout targets fresh installs (inline FKs, CHECKs, timestamps on CREATE TABLE); idempotent
--- ALTER … IF NOT EXISTS / DROP IF EXISTS blocks also help bring older databases closer to current shape.
+-- Full PostgreSQL schema for fresh deployment (all tables: addresses, users, superadmins, shops, catalog, …).
+-- Body matches `001_deployment_postgresql.sql`; apply **either** 001 or this file once per new database, not both.
+-- `npm run db:migrate` runs 001 only — edit both files together when changing schema.
+-- Idempotent ALTER … IF NOT EXISTS / DROP IF EXISTS blocks also help upgrade older databases.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -79,8 +79,39 @@ BEGIN
   END IF;
 END $$;
 
+-- Platform operators (not tenant-scoped; no shop_id / RLS — connect with privileged role or bypass as needed).
+CREATE TABLE IF NOT EXISTS superadmins (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT,
+  display_name TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'superadmins_email_len_chk') THEN
+    ALTER TABLE superadmins
+      ADD CONSTRAINT superadmins_email_len_chk
+      CHECK (char_length(email) BETWEEN 1 AND 254);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'superadmins_email_format_chk') THEN
+    ALTER TABLE superadmins
+      ADD CONSTRAINT superadmins_email_format_chk
+      CHECK (email ~* '^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'superadmins_display_name_len_chk') THEN
+    ALTER TABLE superadmins
+      ADD CONSTRAINT superadmins_display_name_len_chk
+      CHECK (display_name IS NULL OR char_length(display_name) <= 120);
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS shops (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_id TEXT UNIQUE,
   slug TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   custom_domain TEXT UNIQUE,
@@ -449,7 +480,7 @@ CREATE TABLE IF NOT EXISTS orders (
   notes TEXT,
   placed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (shop_id, order_number)
-);
+); 
 
 CREATE INDEX IF NOT EXISTS idx_orders_shop_status_placed ON orders(shop_id, status, placed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_shop_customer_placed ON orders (shop_id, customer_id, placed_at DESC);

@@ -37,12 +37,18 @@ export const authController = {
           return res.json(result);
         } catch {
           res.clearCookie("storefront_oauth_exchange", cookieOpts);
-          return res.status(401).json({
-            error: {
-              code: "UNAUTHORIZED",
-              message: "OAuth exchange cookie expired or invalid. Complete Google sign-in again."
-            }
-          });
+          const canFallBackToEmail =
+            env.ALLOW_EMAIL_ONLY_JWT_EXCHANGE && Boolean(req.body?.email);
+          if (!canFallBackToEmail) {
+            return res.status(401).json({
+              error: {
+                code: "UNAUTHORIZED",
+                message:
+                  "OAuth exchange cookie expired or invalid. Complete Google sign-in again."
+              }
+            });
+          }
+          // Stale Postman/browser cookie: allow dev email-only path to run below
         }
       }
 
