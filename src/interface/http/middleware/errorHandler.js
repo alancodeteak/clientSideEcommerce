@@ -30,12 +30,9 @@ export function errorHandler(err, req, res, _next) {
   const statusCode = isAppError ? err.statusCode : 500;
 
   if (!isAppError) {
-    logApiError("api.request.completed", req, { code: "INTERNAL_ERROR", statusCode, err });
-  } else if (statusCode >= 400) {
-    logApiWarn("api.request.completed", req, {
-      code: err.code,
-      statusCode
-    });
+    logApiError("api.error.unhandled", req, { code: "INTERNAL_ERROR", statusCode, err });
+  } else if (statusCode >= 500) {
+    logApiError("api.error.app", req, { code: err.code, statusCode });
   }
 
   res.status(statusCode).json({

@@ -59,6 +59,8 @@ Common codes: `VALIDATION_ERROR`, `AUTH_ERROR`, `NOT_FOUND`, `CONFLICT`, `ROUTE_
 The API uses structured, low-noise logs with stable event names.
 
 - Required common fields (when available): `event`, `requestId`, `method`, `route`, `shopId`, `userId`, `customerId`, `code`.
+- Request completion events include `durationMs`.
+- API echoes `x-request-id` response header (uses incoming header when provided, else generates one).
 - Sensitive fields are redacted by logger config (for example auth headers and cookies).
 - Request lifecycle uses one completion event per request: `api.request.completed`.
 - Auth rejection middleware emits: `api.auth.rejected`.

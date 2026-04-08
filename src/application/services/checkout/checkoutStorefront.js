@@ -76,6 +76,23 @@ export function createCheckoutStorefront({
         lng: Number(profile.address.lng)
       });
       if (!service.inServiceArea) {
+        logger.warn(
+          {
+            event: "api.checkout.failed",
+            requestId: requestMeta?.requestId,
+            method: requestMeta?.method,
+            route: requestMeta?.route,
+            shopId,
+            userId,
+            customerId,
+            code: service.code || "ADDRESS_NOT_SERVICEABLE",
+            distanceM: service.distanceM ?? null,
+            maxRadiusM: service.maxRadiusM ?? null,
+            addressLat: Number(profile.address.lat),
+            addressLng: Number(profile.address.lng)
+          },
+          "Checkout serviceability rejected"
+        );
         if (service.code === "SHOP_UNAVAILABLE") {
           throw checkoutError("SHOP_UNAVAILABLE", service.message || "This shop is not available for orders.");
         }
