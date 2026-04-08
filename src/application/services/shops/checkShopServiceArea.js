@@ -7,11 +7,30 @@ import { shopAllowsCustomers } from "../auth/shopPolicy.js";
  * @param {{ shopServiceAreaRepo: import("../../ports/repositories/ShopServiceAreaRepo.js").ShopServiceAreaRepo, maxRadiusM: number }} deps
  */
 export function createCheckShopServiceArea({ shopServiceAreaRepo, maxRadiusM }) {
+  function toFiniteNumber(value) {
+    const normalized =
+      typeof value === "string" ? value.trim().replace(",", ".") : value;
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : null;
+  }
+
   /**
    * @param {{ shopId: string, lat: number, lng: number }} input
    */
   return async function checkShopServiceArea(input) {
     const { shopId, lat, lng } = input;
+    const reqLat = toFiniteNumber(lat);
+    const reqLng = toFiniteNumber(lng);
+    if (reqLat == null || reqLng == null) {
+      return {
+        inServiceArea: false,
+        distanceM: null,
+        maxRadiusM,
+        code: "ADDRESS_COORDINATES_INVALID",
+        message: "Address coordinates are invalid."
+      };
+    }
+
     const row = await shopServiceAreaRepo.getShopHubForServiceCheck(shopId);
     if (!row) {
       throw new NotFoundError("Shop not found");
@@ -34,8 +53,8 @@ export function createCheckShopServiceArea({ shopServiceAreaRepo, maxRadiusM }) 
       };
     }
 
-    const hubLat = row.hub_lat;
-    const hubLng = row.hub_lng;
+    const hubLat = toFiniteNumber(row.hub_lat);
+    const hubLng = toFiniteNumber(row.hub_lng);
     if (hubLat == null || hubLng == null) {
       return {
         inServiceArea: false,
@@ -46,7 +65,7 @@ export function createCheckShopServiceArea({ shopServiceAreaRepo, maxRadiusM }) 
       };
     }
 
-    const distanceM = haversineMeters(lat, lng, hubLat, hubLng);
+    const distanceM = haversineMeters(reqLat, reqLng, hubLat, hubLng);
     const roundedM = Math.round(distanceM);
     const inServiceArea = distanceM <= maxRadiusM;
 

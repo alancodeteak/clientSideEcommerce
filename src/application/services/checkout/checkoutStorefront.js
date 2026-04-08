@@ -3,6 +3,7 @@ import { ValidationError } from "../../../domain/errors/ValidationError.js";
 import { NotFoundError } from "../../../domain/errors/NotFoundError.js";
 import { AppError } from "../../../domain/errors/AppError.js";
 import crypto from "node:crypto";
+import { logger } from "../../../config/logger.js";
 
 /**
  * Purpose: This file handles storefront checkout business logic.
@@ -31,121 +32,170 @@ export function createCheckoutStorefront({
   emitOrderNew = null
 }) {
   return async function checkoutStorefront(client, input) {
-    const { shopId: shopRaw, customerId, userId, addressId, notes } = input;
+    const { shopId: shopRaw, customerId, userId, addressId, notes, requestMeta } = input;
     const shopId = requireShopId(shopRaw);
-
-    const membership = await authRepo.getMembershipByCustomerAndShop(client, customerId, shopId);
-    if (!membership?.is_active || membership.is_blocked || membership.is_deleted) {
-      throw new ValidationError("No access to this shop");
-    }
-
-    const profile = await authRepo.getCustomerProfileByCustomerId(client, customerId);
-    if (!profile || profile.is_blocked || profile.is_deleted) {
-      throw new ValidationError("Invalid customer");
-    }
-    if (profile.user_id !== userId) {
-      throw new ValidationError("Invalid customer");
-    }
-    if (!profile.phone || String(profile.phone).trim() === "") {
-      throw checkoutError("PHONE_REQUIRED", "Phone number is required before checkout");
-    }
-    if (!profile.address || !profile.address.id || !profile.address.line1) {
-      throw checkoutError("ADDRESS_REQUIRED", "Delivery address is required");
-    }
-    if (String(profile.address.id) !== String(addressId)) {
-      throw checkoutError("ADDRESS_INVALID", "Selected address is invalid for this user");
-    }
-    if (profile.address.lat == null || profile.address.lng == null) {
-      throw checkoutError("ADDRESS_COORDINATES_REQUIRED", "Selected address must include location coordinates");
-    }
-
-    const service = await checkShopServiceArea({
+    const logBase = {
+      event: "api.checkout.failed",
+      requestId: requestMeta?.requestId,
+      method: requestMeta?.method,
+      route: requestMeta?.route,
       shopId,
-      lat: Number(profile.address.lat),
-      lng: Number(profile.address.lng)
-    });
-    if (!service.inServiceArea) {
-      throw checkoutError("ADDRESS_NOT_SERVICEABLE", "Selected address is not serviceable for delivery");
-    }
-
-    const custKey = String(customerId);
-    const cart = await cartRepo.findCartByShopAndCustomerId(client, shopId, custKey);
-    if (!cart) {
-      throw new NotFoundError("Cart not found");
-    }
-    const items = await cartRepo.listCartItems(client, shopId, cart.id);
-    if (!items.length) {
-      throw new ValidationError("Cart is empty");
-    }
-
-    const availability = await cartRepo.listCartProductAvailability(client, shopId, cart.id);
-    for (const row of availability) {
-      if (!row.product_id || row.product_status !== "active" || row.availability !== "in_stock") {
-        throw checkoutError("PRODUCT_UNAVAILABLE", "One or more products are unavailable. Please refresh cart.");
-      }
-    }
-
-    let subtotal = 0;
-    const orderItems = items.map((it) => {
-      const lineTotal = minorFromLine(it.quantity, it.unit_price_minor);
-      subtotal += lineTotal;
-      return {
-        productId: it.product_id,
-        name: it.title_snapshot,
-        unitLabel: it.unit_label,
-        quantity: Number(it.quantity),
-        unitPriceMinor: Number(it.unit_price_minor),
-        lineTotalMinor: lineTotal,
-        isCustom: it.is_custom,
-        customNote: it.custom_note
-      };
-    });
-
-    const delivery = Number(deliveryFeeMinor) || 0;
-    const total = subtotal + delivery;
-    const orderNumber = randomOrderNumber();
-
-    const customerName = profile.display_name || "";
-
-    const outboxPayload = {
-      order_number: orderNumber,
-      customer_id: customerId,
-      customer_name: customerName,
-      item_count: orderItems.length
+      userId,
+      customerId
     };
 
-    const order = await orderRepo.insertOrderWithItemsAndOutbox(client, {
-      shopId,
-      customerIdText: custKey,
-      orderNumber,
-      status: "pending",
-      paymentMethod: "cod",
-      subtotalMinor: subtotal,
-      deliveryFeeMinor: delivery,
-      totalMinor: total,
-      currency: "INR",
-      notes: notes ?? null,
-      items: orderItems,
-      outboxPayload
-    });
+    try {
+      const membership = await authRepo.getMembershipByCustomerAndShop(client, customerId, shopId);
+      if (!membership?.is_active || membership.is_blocked || membership.is_deleted) {
+        throw new ValidationError("No access to this shop");
+      }
 
-    await cartRepo.deleteCartItemsForCart(client, shopId, cart.id);
-    await cartRepo.deleteCart(client, shopId, cart.id);
+      const profile = await authRepo.getCustomerProfileByCustomerId(client, customerId);
+      if (!profile || profile.is_blocked || profile.is_deleted) {
+        throw new ValidationError("Invalid customer");
+      }
+      if (profile.user_id !== userId) {
+        throw new ValidationError("Invalid customer");
+      }
+      if (!profile.phone || String(profile.phone).trim() === "") {
+        throw checkoutError("PHONE_REQUIRED", "Phone number is required before checkout");
+      }
+      if (!profile.address || !profile.address.id || !profile.address.line1) {
+        throw checkoutError("ADDRESS_REQUIRED", "Delivery address is required");
+      }
+      if (String(profile.address.id) !== String(addressId)) {
+        throw checkoutError("ADDRESS_INVALID", "Selected address is invalid for this user");
+      }
+      if (profile.address.lat == null || profile.address.lng == null) {
+        throw checkoutError("ADDRESS_COORDINATES_REQUIRED", "Selected address must include location coordinates");
+      }
 
-    if (typeof emitOrderNew === "function") {
-      emitOrderNew({
+      const service = await checkShopServiceArea({
         shopId,
-        order_id: order.id,
-        order_number: orderNumber,
-        items: orderItems.map((x) => ({
-          name: x.name,
-          quantity: x.quantity,
-          unit_label: x.unitLabel
-        })),
-        customer_name: customerName
+        lat: Number(profile.address.lat),
+        lng: Number(profile.address.lng)
       });
-    }
+      if (!service.inServiceArea) {
+        if (service.code === "SHOP_UNAVAILABLE") {
+          throw checkoutError("SHOP_UNAVAILABLE", service.message || "This shop is not available for orders.");
+        }
+        if (service.code === "SHOP_LOCATION_MISSING") {
+          throw checkoutError("SHOP_LOCATION_MISSING", service.message || "Shop delivery location is not configured.");
+        }
+        if (service.code === "ADDRESS_COORDINATES_INVALID") {
+          throw checkoutError(
+            "ADDRESS_COORDINATES_INVALID",
+            service.message || "Selected address coordinates are invalid."
+          );
+        }
+        throw checkoutError("ADDRESS_NOT_SERVICEABLE", "Selected address is not serviceable for delivery");
+      }
 
-    return { orderId: order.id, orderNumber, total_minor: total };
+      const custKey = String(customerId);
+      const cart = await cartRepo.findCartByShopAndCustomerId(client, shopId, custKey);
+      if (!cart) {
+        throw new NotFoundError("Cart not found");
+      }
+      const items = await cartRepo.listCartItems(client, shopId, cart.id);
+      if (!items.length) {
+        throw new ValidationError("Cart is empty");
+      }
+
+      const availability = await cartRepo.listCartProductAvailability(client, shopId, cart.id);
+      for (const row of availability) {
+        if (!row.product_id || row.product_status !== "active" || row.availability !== "in_stock") {
+          throw checkoutError("PRODUCT_UNAVAILABLE", "One or more products are unavailable. Please refresh cart.");
+        }
+      }
+
+      let subtotal = 0;
+      const orderItems = items.map((it) => {
+        const lineTotal = minorFromLine(it.quantity, it.unit_price_minor);
+        subtotal += lineTotal;
+        return {
+          productId: it.product_id,
+          name: it.title_snapshot,
+          unitLabel: it.unit_label,
+          quantity: Number(it.quantity),
+          unitPriceMinor: Number(it.unit_price_minor),
+          lineTotalMinor: lineTotal,
+          isCustom: it.is_custom,
+          customNote: it.custom_note
+        };
+      });
+
+      const delivery = Number(deliveryFeeMinor) || 0;
+      const total = subtotal + delivery;
+      const orderNumber = randomOrderNumber();
+
+      const customerName = profile.display_name || "";
+
+      const outboxPayload = {
+        order_number: orderNumber,
+        customer_id: customerId,
+        customer_name: customerName,
+        item_count: orderItems.length
+      };
+
+      const order = await orderRepo.insertOrderWithItemsAndOutbox(client, {
+        shopId,
+        customerIdText: custKey,
+        orderNumber,
+        status: "pending",
+        paymentMethod: "cod",
+        subtotalMinor: subtotal,
+        deliveryFeeMinor: delivery,
+        totalMinor: total,
+        currency: "INR",
+        notes: notes ?? null,
+        items: orderItems,
+        outboxPayload
+      });
+
+      await cartRepo.deleteCartItemsForCart(client, shopId, cart.id);
+      await cartRepo.deleteCart(client, shopId, cart.id);
+
+      if (typeof emitOrderNew === "function") {
+        emitOrderNew({
+          shopId,
+          order_id: order.id,
+          order_number: orderNumber,
+          items: orderItems.map((x) => ({
+            name: x.name,
+            quantity: x.quantity,
+            unit_label: x.unitLabel
+          })),
+          customer_name: customerName
+        });
+      }
+
+      logger.info(
+        {
+          event: "api.checkout.succeeded",
+          requestId: requestMeta?.requestId,
+          method: requestMeta?.method,
+          route: requestMeta?.route,
+          shopId,
+          userId,
+          customerId,
+          orderId: order.id,
+          orderNumber,
+          totalMinor: total
+        },
+        "Checkout succeeded"
+      );
+
+      return { orderId: order.id, orderNumber, total_minor: total };
+    } catch (err) {
+      logger.warn(
+        {
+          ...logBase,
+          code: err?.code || "CHECKOUT_FAILED",
+          err: err?.message
+        },
+        "Checkout failed"
+      );
+      throw err;
+    }
   };
 }
