@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "name": "ClientSide Ecommerce API",
-    "description": "Storefront API (2026-04): health, auth, Google OAuth2, JWT exchange, profile, service area, catalog.\n\n**Setup**\n- `npm run dev` — default **4100**. `npm run db:migrate`. A **shop** row must exist; set **`shopId`** (collection or environment variable).\n- **`.env`:** `DATABASE_URL`, `JWT_SECRET`, `API_PUBLIC_URL`, Google OAuth vars. Redirect URI in Google Console: `{API_PUBLIC_URL}/api/oauth/callback/google`.\n\n**JWT**\n- Login/register/oauth/jwt return **`accessToken`**. Protected routes: `Authorization: Bearer {{accessToken}}`.\n\n**Postman + OAuth JWT exchange**\n- **Cookie flow:** After Google opens `/api/oauth/callback/google`, the **`storefront_oauth_exchange`** cookie is set on the API host. Postman’s cookie jar often **does not** get that cookie unless you use the Postman **Interceptor** or paste it manually.\n- **`POST /api/auth/oauth/jwt`** with body **`{}`** when the valid cookie is sent.\n- **Dev email mint:** body `{\"email\":\"…\"}` only if **`ALLOW_EMAIL_ONLY_JWT_EXCHANGE=true`** (never production). If you get **401** with email, clear **Cookies** for `localhost:4100` — a **stale** `storefront_oauth_exchange` blocks the email path unless the server falls through (recent fix).\n\n**CORS**\n- API allows credentials for **`CORS_ORIGIN`** (e.g. `http://localhost:5173`). OAuth `POST /api/oauth/sign-in/social` may need **`Origin`** matching that value when testing from CLI.",
+    "description": "Storefront API (2026-04): health, auth, Google OAuth2, JWT exchange, profile, service area, catalog, storefront cart/checkout/account/orders.\n\n**Setup**\n- `npm run dev` — default **4100**. `npm run db:migrate`. A **shop** row must exist; set **`shopId`** (collection or environment variable).\n- **`.env`:** `DATABASE_URL`, `JWT_SECRET`, `API_PUBLIC_URL`, Google OAuth vars. Redirect URI in Google Console: `{API_PUBLIC_URL}/api/oauth/callback/google`.\n\n**JWT**\n- Login/register/oauth/jwt return **`accessToken`**. Protected routes: `Authorization: Bearer {{accessToken}}`.\n\n**Postman + OAuth JWT exchange**\n- **Cookie flow:** After Google opens `/api/oauth/callback/google`, the **`storefront_oauth_exchange`** cookie is set on the API host. Postman’s cookie jar often **does not** get that cookie unless you use the Postman **Interceptor** or paste it manually.\n- **`POST /api/auth/oauth/jwt`** with body **`{}`** when the valid cookie is sent.\n- **Dev email mint:** body `{\"email\":\"…\"}` only if **`ALLOW_EMAIL_ONLY_JWT_EXCHANGE=true`** (never production). If you get **401** with email, clear **Cookies** for `localhost:4100` — a **stale** `storefront_oauth_exchange` blocks the email path unless the server falls through.\n\n**Architecture note**\n- Picker/staff APIs are not served by this app anymore; picker notifications are handled by a separate server/process.\n\n**CORS**\n- API allows credentials for **`CORS_ORIGIN`** (e.g. `http://localhost:5173`). OAuth `POST /api/oauth/sign-in/social` may need **`Origin`** matching that value when testing from CLI.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -338,6 +338,211 @@
             "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
             "url": "{{baseUrl}}/api/catalog/items",
             "description": "**shopId** via header instead of query."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Storefront",
+      "item": [
+        {
+          "name": "POST /storefront/location/check",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 12.9716,\n  \"lng\": 77.5946\n}"
+            },
+            "url": "{{baseUrl}}/storefront/location/check",
+            "description": "Checks if location is serviceable and sets `storefront_serviceability` cookie."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /storefront/categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/storefront/categories?shop_id={{shopId}}",
+            "description": "Public storefront categories for the resolved shop."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /storefront/products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/storefront/products?shop_id={{shopId}}&limit=24",
+            "description": "Public storefront products with optional `category_id`, `search`, `cursor`, `availability`."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /storefront/products/:slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/storefront/products/sample-slug?shop_id={{shopId}}",
+            "description": "Fetch one storefront product by slug."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /storefront/cart",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/storefront/cart?shop_id={{shopId}}",
+            "description": "Create or get cart for guest (cookie session) or customer (Bearer token)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /storefront/cart",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/storefront/cart?shop_id={{shopId}}",
+            "description": "Get cart contents for guest/customer scope."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /storefront/cart/items",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 1\n}"
+            },
+            "url": "{{baseUrl}}/storefront/cart/items?shop_id={{shopId}}",
+            "description": "Add one item to cart."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /storefront/cart/items/:itemId",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}"
+            },
+            "url": "{{baseUrl}}/storefront/cart/items/00000000-0000-0000-0000-000000000000?shop_id={{shopId}}",
+            "description": "Update cart item quantity."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /storefront/cart/items/:itemId",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/storefront/cart/items/00000000-0000-0000-0000-000000000000?shop_id={{shopId}}",
+            "description": "Remove one cart item."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /storefront/checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Leave at the door\"\n}"
+            },
+            "url": "{{baseUrl}}/storefront/checkout?shop_id={{shopId}}",
+            "description": "Customer checkout. Creates order, outbox `order.created`, clears cart."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /storefront/profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"displayName\": \"Buyer Name\",\n  \"phone\": \"+919999999999\"\n}"
+            },
+            "url": "{{baseUrl}}/storefront/profile?shop_id={{shopId}}",
+            "description": "Update storefront profile fields (at least one of `displayName` or `phone`)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /storefront/address",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/storefront/address?shop_id={{shopId}}",
+            "description": "Get storefront delivery address."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /storefront/address",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"line1\": \"10 Example Street\",\n  \"city\": \"Bengaluru\",\n  \"state\": \"KA\",\n  \"postalCode\": \"560001\",\n  \"country\": \"IN\",\n  \"lat\": 12.9716,\n  \"lng\": 77.5946\n}"
+            },
+            "url": "{{baseUrl}}/storefront/address?shop_id={{shopId}}",
+            "description": "Create or replace storefront address."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /storefront/address",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"landmark\": \"Near metro station\"\n}"
+            },
+            "url": "{{baseUrl}}/storefront/address?shop_id={{shopId}}",
+            "description": "Patch storefront address fields."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /storefront/orders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/storefront/orders?shop_id={{shopId}}",
+            "description": "List storefront customer orders."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /storefront/orders/:id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/storefront/orders/00000000-0000-0000-0000-000000000000?shop_id={{shopId}}",
+            "description": "Get one order detail by order id."
           },
           "response": []
         }
