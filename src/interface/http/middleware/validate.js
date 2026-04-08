@@ -1,5 +1,6 @@
 import { ZodError } from "zod";
 import { ValidationError } from "../../../domain/errors/ValidationError.js";
+import { logApiWarn, zodIssuesSummary } from "../../../infra/logging/apiLog.js";
 
 export function validate({ body, query, params } = {}) {
   return (req, _res, next) => {
@@ -10,6 +11,10 @@ export function validate({ body, query, params } = {}) {
       next();
     } catch (err) {
       if (err instanceof ZodError) {
+        logApiWarn("api.validation.failed", req, {
+          code: "VALIDATION_ERROR",
+          issues: zodIssuesSummary(err.flatten())
+        });
         next(new ValidationError("Invalid request", err.flatten()));
       } else {
         next(err);

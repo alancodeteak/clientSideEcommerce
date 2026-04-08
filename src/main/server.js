@@ -15,7 +15,49 @@ export function createExpressApp(ctx) {
   const app = express();
 
   app.disable("x-powered-by");
-  app.use(pinoHttp({ logger }));
+  app.use(
+    pinoHttp({
+      logger,
+      quietReqLogger: true,
+      customLogLevel(req, res, err) {
+        if (req.url === "/health") return "silent";
+        if (err || res.statusCode >= 500) return "error";
+        if (res.statusCode >= 400) return "warn";
+        return "info";
+      },
+      customSuccessMessage(req, res) {
+        return req.url === "/health" ? "health.check" : "api.request.completed";
+      },
+      customErrorMessage() {
+        return "api.request.completed";
+      },
+      customSuccessObject(req, res) {
+        return {
+          event: "api.request.completed",
+          requestId: req.id,
+          method: req.method,
+          route: req.route?.path || req.originalUrl,
+          statusCode: res.statusCode,
+          shopId: req.shopId,
+          userId: req.customerAuth?.userId,
+          customerId: req.customerAuth?.customerId
+        };
+      },
+      customErrorObject(req, res, err) {
+        return {
+          event: "api.request.completed",
+          requestId: req.id,
+          method: req.method,
+          route: req.route?.path || req.originalUrl,
+          statusCode: res.statusCode,
+          shopId: req.shopId,
+          userId: req.customerAuth?.userId,
+          customerId: req.customerAuth?.customerId,
+          err: err?.message
+        };
+      }
+    })
+  );
   app.use(helmet());
   app.use(
     cors({

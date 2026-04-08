@@ -1,5 +1,5 @@
 import { AppError } from "../../../domain/errors/AppError.js";
-import { logger } from "../../../config/logger.js";
+import { logApiError, logApiWarn } from "../../../infra/logging/apiLog.js";
 
 /** express.json() / body-parser: invalid JSON body (e.g. trailing character in Postman raw body). */
 function isMalformedJsonBody(err) {
@@ -10,9 +10,13 @@ function isMalformedJsonBody(err) {
   );
 }
 
-export function errorHandler(err, _req, res, _next) {
+export function errorHandler(err, req, res, _next) {
   if (isMalformedJsonBody(err)) {
-    logger.warn({ err: err.message }, "Invalid JSON body");
+    logApiWarn("api.validation.failed", req, {
+      code: "INVALID_JSON",
+      reason: "malformed_json",
+      err: err.message
+    });
     return res.status(400).json({
       error: {
         code: "INVALID_JSON",
@@ -26,7 +30,12 @@ export function errorHandler(err, _req, res, _next) {
   const statusCode = isAppError ? err.statusCode : 500;
 
   if (!isAppError) {
-    logger.error({ err }, "Unhandled error");
+    logApiError("api.request.completed", req, { code: "INTERNAL_ERROR", statusCode, err });
+  } else if (statusCode >= 400) {
+    logApiWarn("api.request.completed", req, {
+      code: err.code,
+      statusCode
+    });
   }
 
   res.status(statusCode).json({

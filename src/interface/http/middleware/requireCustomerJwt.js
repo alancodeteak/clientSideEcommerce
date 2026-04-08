@@ -1,4 +1,5 @@
 import { verifyCustomerAccessToken } from "../../../infra/auth/jwt.js";
+import { logApiWarn } from "../../../infra/logging/apiLog.js";
 
 /**
  * @param {{
@@ -18,6 +19,7 @@ export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck }) {
     const handler = async (req, res, next) => {
       const raw = req.headers.authorization;
       if (!raw || !raw.startsWith("Bearer ")) {
+        logApiWarn("api.auth.rejected", req, { code: "UNAUTHORIZED", reason: "missing_bearer_token" });
         return res.status(401).json({
           error: {
             code: "UNAUTHORIZED",
@@ -28,6 +30,7 @@ export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck }) {
 
       const token = raw.slice("Bearer ".length).trim();
       if (!token) {
+        logApiWarn("api.auth.rejected", req, { code: "UNAUTHORIZED", reason: "empty_bearer_token" });
         return res.status(401).json({
           error: {
             code: "UNAUTHORIZED",
@@ -44,6 +47,12 @@ export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck }) {
         if (!skipDbSessionCheck) {
           const ok = await authRepo.isCustomerSessionValid(userId, customerId);
           if (!ok) {
+            logApiWarn("api.auth.rejected", req, {
+              code: "UNAUTHORIZED",
+              reason: "invalid_db_session",
+              userId,
+              customerId
+            });
             return res.status(401).json({
               error: {
                 code: "UNAUTHORIZED",
@@ -61,6 +70,7 @@ export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck }) {
         };
         next();
       } catch {
+        logApiWarn("api.auth.rejected", req, { code: "UNAUTHORIZED", reason: "invalid_or_expired_token" });
         return res.status(401).json({
           error: {
             code: "UNAUTHORIZED",

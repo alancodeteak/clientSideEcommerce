@@ -54,6 +54,24 @@ Most failures return JSON:
 
 Common codes: `VALIDATION_ERROR`, `AUTH_ERROR`, `NOT_FOUND`, `CONFLICT`, `ROUTE_NOT_FOUND`, `INVALID_JSON`, `TOO_MANY_REQUESTS`, `SERVICE_UNAVAILABLE`.
 
+## Logging standard
+
+The API uses structured, low-noise logs with stable event names.
+
+- Required common fields (when available): `event`, `requestId`, `method`, `route`, `shopId`, `userId`, `customerId`, `code`.
+- Sensitive fields are redacted by logger config (for example auth headers and cookies).
+- Request lifecycle uses one completion event per request: `api.request.completed`.
+- Auth rejection middleware emits: `api.auth.rejected`.
+- Request validation failures emit: `api.validation.failed`.
+- Checkout domain outcomes emit:
+  - `api.checkout.failed` (warn, includes business `code`),
+  - `api.checkout.succeeded` (info, includes `orderId`, `orderNumber`, `totalMinor`).
+
+Redaction/noise policy:
+- Do not log request/response bodies by default.
+- Do not add per-route info logs for low-impact reads (catalog/category/product reads).
+- Add domain logs only for high-impact operations (auth, validation, checkout outcomes).
+
 ## Health & root
 
 | Method | Path | Description |

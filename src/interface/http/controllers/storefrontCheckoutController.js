@@ -17,7 +17,12 @@ export const storefrontCheckoutController = {
           customerId,
           userId,
           addressId: req.body.addressId,
-          notes: req.body?.notes ?? null
+          notes: req.body?.notes ?? null,
+          requestMeta: {
+            requestId: req.id,
+            method: req.method,
+            route: req.route?.path || req.originalUrl
+          }
         })
       );
       res.status(201).json(out);
