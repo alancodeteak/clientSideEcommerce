@@ -8,6 +8,8 @@ This document describes **every HTTP endpoint exposed by this service** in a con
 
 **Base URL:** configure per environment (local default `http://localhost:4100`). There is **no** `/api/v1` prefix on this service; paths are as listed below.
 
+**Swagger:** interactive docs at **`/api-docs`**, machine schema at **`/openapi.json`** (see `docs/API.md`).
+
 **Format:** JSON request bodies and JSON responses unless noted. Send `Content-Type: application/json` for requests with a body.
 
 ### Per-endpoint specification pattern (required for frontend handoff)
@@ -75,18 +77,17 @@ Protected routes require:
 Authorization: Bearer <accessToken>
 ```
 
-JWT is issued by `POST /api/auth/register`, `POST /api/auth/login`, or `POST /api/auth/oauth/jwt` (after Google OAuth). Claims used by the server include at least `sub` (user id), `customerId`, optional `shopId` (when the user has exactly one active shop).
+JWT is issued by `POST /api/auth/otp/verify` (mobile OTP) or `POST /api/auth/oauth/jwt` (Google OAuth, see **§4**). Claims used by the server include at least `sub` (user id), `customerId`, optional `shopId` (when the user has exactly one active shop).
 
 ### 1.5 Shop / tenant resolution
 
 Many routes need a **shop UUID**. The server resolves `req.shopId` (middleware) from, in order:
 
-1. Query `shopId` or `shop_id` (UUID)
-2. Header `x-shop-id` (UUID)
-3. Hostname subdomain when `STOREFRONT_ROOT_DOMAIN` is set (slug → shop lookup)
-4. Host header match against `shops.custom_domain` (skipped for `localhost`, `127.*`, bare IPs)
+1. Header `x-shop-id` (UUID)
+2. Hostname subdomain when `STOREFRONT_ROOT_DOMAIN` is set (slug → shop lookup)
+3. Host header match against `shops.custom_domain` (skipped for `localhost`, `127.*`, bare IPs)
 
-**Frontend guidance:** for API clients (Postman, SPA on another port), always pass **`shop_id` or `shopId` in the query string** and/or **`x-shop-id`**.
+**Frontend guidance:** for API clients (Postman, SPA on another port), send **`x-shop-id: <shop-uuid>`** on tenant-scoped requests. Query `shopId` / `shop_id` is not read for catalog or storefront routes.
 
 ### 1.6 Cookies (browser flows)
 
@@ -94,8 +95,6 @@ Many routes need a **shop UUID**. The server resolves `req.shopId` (middleware) 
 |--------|---------|
 | `storefront_oauth_exchange` | Set by Google OAuth callback; used to complete session via `POST /api/auth/oauth/jwt`. HttpOnly. |
 | `storefront_serviceability` | Set by `POST /storefront/location/check` when location is checked. HttpOnly. |
-
-`POST /auth/logout` clears OAuth and serviceability cookies.
 
 ### 1.7 CORS
 
@@ -105,6 +104,26 @@ Browser calls must use the configured `CORS_ORIGIN` and, for cookies, `fetch(...
 
 - **Auth / OAuth / location / checkout:** shared window (~15 minutes), see server config (returns **429** `TOO_MANY_REQUESTS`).
 - **Cart mutations** (add/update/delete item): per-minute limit (**429**).
+
+### 1.9 How IDs are passed (simple rules)
+
+Use this checklist while integrating:
+
+- **Shop ID (tenant):** send `x-shop-id: <shop-uuid>` header on tenant-scoped routes. Do not send shop id in query for catalog/storefront APIs.
+- **Path IDs:** send resource ids in URL path only (`:slug`, `:itemId`, `:id`).
+- **Body IDs:** send IDs in JSON only where request schema asks for them (for example `shopId` in OTP request/verify, `productId` in cart add, `addressId` in checkout).
+- **Auth token:** protected routes require `Authorization: Bearer <accessToken>`.
+- **Google OAuth cookie:** `POST /api/auth/oauth/jwt` requires `storefront_oauth_exchange` cookie set by callback.
+
+### 1.10 Endpoint purpose quick map
+
+| Endpoint group | Main purpose | Where IDs come from |
+|---|---|---|
+| `/api/auth/otp/*` | Phone OTP sign-in and JWT issue | `shopId` in body |
+| `/api/oauth/*` | Start/complete Google OAuth | `x-shop-id` header or `additionalData.shopId` |
+| `/api/me/profile` | Customer profile read/update | JWT + customer from token |
+| `/storefront/*` | Customer storefront, cart, checkout, account, orders | Mostly `x-shop-id` + JWT for protected routes |
+| `/api/catalog/*` | Tenant catalog listing/search | `x-shop-id` header |
 
 ---
 
@@ -123,7 +142,8 @@ Browser calls must use the configured `CORS_ORIGIN` and, for cookies, `fetch(...
   "ok": true,
   "service": "clientside-ecommerce-api",
   "health": "/health",
-  "oauthAfterLogin": "/api/oauth/success"
+  "openapi": "/openapi.json",
+  "swaggerUi": "/api-docs"
 }
 ```
 
@@ -150,12 +170,14 @@ Browser calls must use the configured `CORS_ORIGIN` and, for cookies, `fetch(...
 
 ---
 
-## 3. Authentication (email + password)
+## 3. Authentication (Mobile OTP + Google OAuth)
 
-### 3.1 Register (join shop)
+This service does **not** expose email/password login. Customers can sign in either by **mobile OTP** (`/api/auth/otp/*`) or by **Google OAuth** (`§4`) then JWT exchange (`/api/auth/oauth/jwt`).
 
-**Endpoint:** `POST /api/auth/register`
-**Description:** Create user + customer membership for a shop, or re-link an existing email to the shop when allowed. Returns JWT.
+### 3.1 Request mobile OTP
+
+**Endpoint:** `POST /api/auth/otp/request`
+**Description:** Generates a one-time 6-digit OTP for `{ phone, shopId }`, stores only a hash, and sends the OTP through the local console SMS sender (dev/local). Response is intentionally generic.
 **Authentication:** None.
 **Rate limiting:** Yes.
 
@@ -163,65 +185,8 @@ Browser calls must use the configured `CORS_ORIGIN` and, for cookies, `fetch(...
 
 ```json
 {
-  "shopId": "uuid",
-  "email": "user@example.com",
-  "password": "string (min 6, max 128)",
-  "displayName": "optional string | null"
-}
-```
-
-**Success Response (201 Created):** (new user)
-
-```json
-{
-  "accessToken": "jwt",
-  "role": "customer",
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "registrationSource": "email_or_oauth"
-  },
-  "shop": { "id": "uuid", "slug": "shop-slug", "name": "Shop name" },
-  "customer": { "id": "uuid" },
-  "profile": [
-    {
-      "name": "Display name or null",
-      "shopName": "Shop name",
-      "shopId": "uuid",
-      "shopSlug": "shop-slug"
-    }
-  ]
-}
-```
-
-**Success Response (201 Created):** (existing user / membership reactivation — same general shape: `accessToken`, `shop`, `customer`, `profile`; see server implementation.)
-
-**Error Response:**
-
-| Status | `error.code` | When |
-|--------|----------------|------|
-| 400 | `VALIDATION_ERROR` | Invalid body |
-| 401 | `UNAUTHORIZED` | Wrong password / blocked |
-| 403 | `FORBIDDEN` | Policy / shop blocked |
-| 409 | `CONFLICT` | Cannot register for this shop (e.g. membership conflict) |
-| 429 | `TOO_MANY_REQUESTS` | Rate limit |
-
----
-
-### 3.2 Login
-
-**Endpoint:** `POST /api/auth/login`
-**Description:** Email/password sign-in. Returns JWT and all active shop memberships.
-**Authentication:** None.
-**Rate limiting:** Yes.
-
-**Request body:**
-
-```json
-{
-  "email": "user@example.com",
-  "password": "string",
-  "shopId": "optional uuid"
+  "phone": "+919999999999",
+  "shopId": "uuid"
 }
 ```
 
@@ -229,37 +194,43 @@ Browser calls must use the configured `CORS_ORIGIN` and, for cookies, `fetch(...
 
 ```json
 {
-  "accessToken": "jwt",
-  "role": "customer",
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "registrationSource": "string"
-  },
-  "customer": { "id": "uuid" },
-  "shopIds": ["uuid", "..."],
-  "profile": [
-    {
-      "name": "Display name or null",
-      "shopName": "string",
-      "shopId": "uuid",
-      "shopSlug": "string"
-    }
-  ]
+  "ok": true,
+  "message": "If eligible, an OTP has been sent."
 }
 ```
 
-**Note:** If the user has exactly one shop, the JWT may include `shopId` in the token payload (implementation detail); always pass explicit `shop_id` for storefront routes when unsure.
+**Error Response:** **400** `VALIDATION_ERROR` (invalid phone/shop, resend-too-fast, request limit), **404** `NOT_FOUND` (shop not found), **429** `TOO_MANY_REQUESTS`. Standard JSON error envelope (**§1.2**).
 
-**Error Response:** **401** `UNAUTHORIZED` for bad credentials; **429** rate limit; **400** `VALIDATION_ERROR` (invalid body). Standard JSON error envelope (**§1.2**).
+---
+
+### 3.2 Verify mobile OTP
+
+**Endpoint:** `POST /api/auth/otp/verify`
+**Description:** Verifies `{ phone, shopId, code }`, consumes challenge, ensures user/customer/membership, and returns the standard storefront JWT session payload.
+**Authentication:** None.
+**Rate limiting:** Yes.
+
+**Request body:**
+
+```json
+{
+  "phone": "+919999999999",
+  "shopId": "uuid",
+  "code": "123456"
+}
+```
+
+**Success Response (200 OK):** Full session payload (`accessToken`, `user`, `customer`, `shopIds`, `profile`, …).
+
+**Error Response:** **401** `UNAUTHORIZED` (invalid/expired OTP), **400** `VALIDATION_ERROR`, **404** `NOT_FOUND` (shop), **429** `TOO_MANY_REQUESTS`. Standard JSON error envelope (**§1.2**).
 
 ---
 
 ### 3.3 OAuth: exchange session for JWT
 
 **Endpoint:** `POST /api/auth/oauth/jwt`
-**Description:** After Google OAuth callback, completes session using `storefront_oauth_exchange` cookie, or (only if `ALLOW_EMAIL_ONLY_JWT_EXCHANGE` is enabled in non-production) email-only fallback.
-**Authentication:** Cookie and/or body per rules below.
+**Description:** After Google OAuth callback, completes session using `storefront_oauth_exchange` cookie.
+**Authentication:** Cookie.
 **Rate limiting:** Yes.
 
 **Request body (strict JSON):**
@@ -268,78 +239,22 @@ Browser calls must use the configured `CORS_ORIGIN` and, for cookies, `fetch(...
 {}
 ```
 
-Optional fields (when allowed):
+Optional field:
 
 ```json
 {
-  "email": "user@example.com",
   "shopId": "uuid"
 }
 ```
 
-**Success Response (200 OK):** Same shape as **login** (`accessToken`, `user`, `customer`, `shopIds`, `profile`, …).
+**Success Response (200 OK):** Full session payload (`accessToken`, `user`, `customer`, `shopIds`, `profile`, …).
 
 **Error Response:**
 
 | Status | Code | When |
 |--------|------|------|
 | 401 | `UNAUTHORIZED` | Missing/invalid OAuth cookie |
-| 403 | `FORBIDDEN` | Email-only exchange disabled |
-| 400 | `VALIDATION_ERROR` | Missing email when fallback requires it |
-
----
-
-### 3.4 Auth aliases (explicit endpoints; same contracts as §3.1 / §3.2)
-
-These exist for Better Auth–style paths; validation, responses, and errors match the `/api/auth/*` counterparts.
-
-#### 3.4.1 Register (alias path)
-
-**Endpoint:** `POST /auth/email/register`
-
-**Description:** Same as **§3.1 Register** (Better Auth–style path).
-
-**Authentication:** None.
-
-**Rate limiting:** Yes (same window as `/api/auth/register`).
-
-**Request body, Success Response, Error Response:** Identical to **§3.1**.
-
----
-
-#### 3.4.2 Login (alias path)
-
-**Endpoint:** `POST /auth/email/login`
-
-**Description:** Same as **§3.2 Login** (Better Auth–style path).
-
-**Authentication:** None.
-
-**Rate limiting:** Yes.
-
-**Request body, Success Response, Error Response:** Identical to **§3.2**.
-
-### 3.5 Logout
-
-**Endpoint:** `POST /auth/logout`
-**Description:** Clears OAuth exchange + serviceability cookies.
-**Authentication:** None.
-
-**Success Response (204 No Content):** Empty body.
-
-**Error Response:** **500** `INTERNAL_ERROR` on unexpected failure — standard JSON error envelope (**§1.2**).
-
----
-
-### 3.6 Start Google OAuth (dev helper redirect)
-
-**Endpoint:** `GET /auth/google`
-**Description:** Redirects to `/api/oauth/dev/google-start` with query string preserved.
-**Authentication:** None.
-
-**Success Response (302 Found):** Redirect to `/api/oauth/dev/google-start` with the same query string as this request.
-
-**Error Response:** Rare **500** on unexpected failure — standard JSON error envelope (**§1.2**).
+| 400 | `VALIDATION_ERROR` | Invalid body |
 
 ---
 
@@ -347,61 +262,7 @@ These exist for Better Auth–style paths; validation, responses, and errors mat
 
 **Registered redirect URI (Google Cloud):** `{API_PUBLIC_URL}/api/oauth/callback/google` (no trailing slash on `API_PUBLIC_URL`).
 
-### 4.1 OAuth sanity
-
-**Endpoint:** `GET /api/oauth/ok`
-**Description:** Quick check that the server is up (OAuth-related sanity).
-**Authentication:** None.
-
-**Success Response (200 OK):**
-
-```json
-{
-  "ok": true
-}
-```
-
-**Error Response:** **500** `INTERNAL_ERROR` — standard JSON error envelope (**§1.2**).
-
-### 4.2 OAuth success landing
-
-**Endpoint:** `GET /api/oauth/success`
-**Description:** Default browser landing after Google OAuth callback (unless you override `callbackURL` in the OAuth start flow). Frontend should then call `POST /api/auth/oauth/jwt` with credentials to obtain `accessToken`.
-**Authentication:** None.
-
-**Success Response (200 OK):**
-
-```json
-{
-  "ok": true,
-  "message": "POST /api/auth/oauth/jwt from this origin with credentials (include cookies) to receive accessToken."
-}
-```
-
-**Error Response:** **500** `INTERNAL_ERROR` — standard JSON error envelope (**§1.2**).
-
-### 4.3 Social sign-in (wrong method)
-
-**Endpoint:** `GET /api/oauth/sign-in/social`
-**Description:** Social sign-in must use **POST**.
-**Authentication:** None.
-
-**Error Response (405 Method Not Allowed):**
-
-```json
-{
-  "error": {
-    "code": "METHOD_NOT_ALLOWED",
-    "message": "Use POST with JSON body (provider, optional disableRedirect, callbackURL, additionalData)."
-  }
-}
-```
-
-Response includes header `Allow: POST`.
-
-**Error Response:** N/A for success path above; body always JSON for **405**.
-
-### 4.4 Start social sign-in
+### 4.1 Start social sign-in
 
 **Endpoint:** `POST /api/oauth/sign-in/social`
 
@@ -434,34 +295,16 @@ Response includes header `Allow: POST`.
 
 **Error Response:** **503** `SERVICE_UNAVAILABLE` if `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are not configured; **400** `VALIDATION_ERROR`; **429** `TOO_MANY_REQUESTS`. Standard JSON error envelope (**§1.2**).
 
-### 4.5 Dev Google start
-
-**Endpoint:** `GET /api/oauth/dev/google-start`
-**Description:** Development helper — builds Google authorize URL and redirects the browser.
-**Authentication:** None.
-**Rate limiting:** Yes.
-
-**Query parameters (validated):**
-
-| Param | Type | Required |
-|-------|------|----------|
-| `shopId` | uuid | No |
-| `callbackURL` | absolute URL | No |
-
-**Success Response (302 Found):** Redirect to Google authorization URL.
-
-**Error Response:** **503** `SERVICE_UNAVAILABLE` if Google OAuth env is missing; **400** `VALIDATION_ERROR`; **429** `TOO_MANY_REQUESTS`. Standard JSON error envelope (**§1.2**) except on redirect success.
-
-### 4.6 Google callback
+### 4.2 Google callback
 
 **Endpoint:** `GET /api/oauth/callback/google`
-**Description:** Google redirect URI target. Exchanges `code` for user info, provisions/links customer, sets httpOnly `storefront_oauth_exchange`, then **302** redirects to `callbackURL` from OAuth state, or **`{API_PUBLIC_URL}/api/oauth/success`** if none was set.
+**Description:** Google redirect URI target. Exchanges `code` for user info, provisions/links customer, sets httpOnly `storefront_oauth_exchange`, then **302** redirects to `callbackURL` from OAuth state, or **`{API_PUBLIC_URL}/`** if none was set.
 **Authentication:** None (browser + Google query params).
 **Rate limiting:** Yes.
 
 **Query parameters (from Google):** `code`, `state` (required on success path). On user denial, Google may send `error`, `error_description`.
 
-**Success Response (302 Found):** Redirect to frontend `callbackURL` from OAuth state; if none was stored, default is `{API_PUBLIC_URL}/api/oauth/success`. Sets `Set-Cookie: storefront_oauth_exchange=...` (httpOnly).
+**Success Response (302 Found):** Redirect to frontend `callbackURL` from OAuth state; if none was stored, default is `{API_PUBLIC_URL}/`. Sets `Set-Cookie: storefront_oauth_exchange=...` (httpOnly).
 
 **Error Response:** **400** `VALIDATION_ERROR` (OAuth error query, missing code/state, email not verified); **401** `UNAUTHORIZED` (bad/expired `state`); **503** `SERVICE_UNAVAILABLE`; **429** `TOO_MANY_REQUESTS` — standard JSON error envelope (**§1.2**) when response is not a redirect.
 
@@ -625,7 +468,10 @@ Shop context **required** for these routes.
 
 **Endpoint:** `GET /storefront/products`
 
-**Description:** Cursor-paginated product list for the shop with optional filters.
+**Description:** Cursor-paginated product list for the shop with optional filters. Each product now includes:
+- product image (`thumbnail`)
+- category summary object (`parent_id`, `name`, `slug`)
+- category image (`category.image`)
 
 **Authentication:** None.
 
@@ -658,6 +504,16 @@ Shop context **required** for these routes.
         "mediaAssetId": "uuid",
         "storageKey": "string",
         "contentType": "string"
+      },
+      "category": {
+        "parent_id": "uuid | null",
+        "name": "Vegetables",
+        "slug": "vegetables",
+        "image": {
+          "mediaAssetId": "uuid",
+          "storageKey": "string",
+          "contentType": "string"
+        }
       },
       "created_at": "timestamp",
       "category_id": "uuid | null"
@@ -1144,7 +1000,7 @@ Shop context **required**; **Bearer JWT** required.
 
 ## 12. Catalog API (`/api/catalog/*`) — tenant-scoped
 
-**Shop context:** pass **`shopId`** as a query parameter and/or **`x-shop-id`** header (UUID). The handler uses `req.shopId ?? req.query.shopId ?? headers['x-shop-id']` (see `catalogController`).
+**Shop context:** send **`x-shop-id`** (UUID), or rely on host-based resolution (see **§1.5**). Catalog handlers use **`req.shopId`** set by the shop resolver (no query `shopId` / `shop_id`).
 
 All routes below require a resolvable shop id; missing/invalid shop returns **400** validation-style errors from catalog services.
 
@@ -1156,7 +1012,7 @@ All routes below require a resolvable shop id; missing/invalid shop returns **40
 
 **Authentication:** None.
 
-**Shop context:** Required — `shopId` query and/or `x-shop-id` header (§12 intro).
+**Shop context:** Required — **`x-shop-id`** header or host resolution (§12 intro).
 
 **Query:**
 
@@ -1193,11 +1049,11 @@ All routes below require a resolvable shop id; missing/invalid shop returns **40
 
 **Endpoint:** `GET /api/catalog/products`
 
-**Description:** Lists active products for the tenant (optional category filter); internal catalog listing.
+**Description:** Lists active products for the tenant (optional category filter). Response includes product image and embedded category details with category image.
 
 **Authentication:** None.
 
-**Shop context:** Required — `shopId` query and/or `x-shop-id` header (§12 intro).
+**Shop context:** Required — **`x-shop-id`** header or host resolution (§12 intro).
 
 **Query:**
 
@@ -1219,6 +1075,21 @@ All routes below require a resolvable shop id; missing/invalid shop returns **40
       "base_unit": "string",
       "status": "active",
       "price_minor_per_unit": "string",
+      "image": {
+        "mediaAssetId": "uuid",
+        "storageKey": "string",
+        "contentType": "string"
+      },
+      "category": {
+        "parent_id": "uuid | null",
+        "name": "Vegetables",
+        "slug": "vegetables",
+        "image": {
+          "mediaAssetId": "uuid",
+          "storageKey": "string",
+          "contentType": "string"
+        }
+      },
       "created_at": "timestamp",
       "updated_at": "timestamp"
     }
@@ -1236,7 +1107,7 @@ Only **active** products; maximum **100** rows; ordered by name ascending.
 
 **Endpoint:** `GET /api/catalog/items`
 
-**Description:** Same handler and response shape as **§12.2** (`GET /api/catalog/products`).
+**Description:** Same handler and response shape as **§12.2** (`GET /api/catalog/products`) including product/category images.
 
 **Authentication:** None.
 
@@ -1252,7 +1123,7 @@ Only **active** products; maximum **100** rows; ordered by name ascending.
 
 **Endpoint:** `GET /api/catalog/search`
 
-**Description:** Unified product/category search with pagination and sort options. Query string is validated by `catalogSearchQuerySchema`.
+**Description:** Unified product/category search with pagination and sort options. Product rows include product image plus category summary/image.
 
 **Authentication:** None.
 
@@ -1262,7 +1133,7 @@ Only **active** products; maximum **100** rows; ordered by name ascending.
 
 | Param | Type / default | Description |
 |-------|----------------|-------------|
-| `shopId` | uuid optional | Same as header `x-shop-id` / middleware shop resolution. |
+| *(tenant)* | Use header `x-shop-id` (or host-based resolution). Not a query parameter. |
 | `type` | `both` (default) | `products` \| `categories` \| `both` — which arrays to fill. |
 | `q` | string optional, max 200 | Search text (trimmed); `ILIKE` on name/slug. |
 | `categoryId` | uuid optional | Filter **products** by category. |
@@ -1292,6 +1163,21 @@ Only **active** products; maximum **100** rows; ordered by name ascending.
       "status": "active",
       "availability": "in_stock | out_of_stock | unknown",
       "price_minor_per_unit": "string",
+      "image": {
+        "mediaAssetId": "uuid",
+        "storageKey": "string",
+        "contentType": "string"
+      },
+      "category": {
+        "parent_id": "uuid | null",
+        "name": "Vegetables",
+        "slug": "vegetables",
+        "image": {
+          "mediaAssetId": "uuid",
+          "storageKey": "string",
+          "contentType": "string"
+        }
+      },
       "created_at": "timestamp",
       "updated_at": "timestamp"
     }
@@ -1327,19 +1213,11 @@ Every row matches `src/interface/http/routes/index.js`. Use the **Doc §** colum
 |--------|------|-------|------|------------|
 | GET | `/` | §2.1 | None | No |
 | GET | `/health` | §2.2 | None | No |
-| POST | `/api/auth/register` | §3.1 | None | Yes |
-| POST | `/api/auth/login` | §3.2 | None | Yes |
+| POST | `/api/auth/otp/request` | §3.1 | None | Yes |
+| POST | `/api/auth/otp/verify` | §3.2 | None | Yes |
 | POST | `/api/auth/oauth/jwt` | §3.3 | Cookie / optional body | Yes |
-| POST | `/auth/email/register` | §3.4.1 | None | Yes |
-| POST | `/auth/email/login` | §3.4.2 | None | Yes |
-| POST | `/auth/logout` | §3.5 | None | No |
-| GET | `/auth/google` | §3.6 | None | No |
-| GET | `/api/oauth/ok` | §4.1 | None | No |
-| GET | `/api/oauth/success` | §4.2 | None | No |
-| GET | `/api/oauth/sign-in/social` | §4.3 | None | No |
-| GET | `/api/oauth/dev/google-start` | §4.5 | None | Yes |
-| POST | `/api/oauth/sign-in/social` | §4.4 | None | Yes |
-| GET | `/api/oauth/callback/google` | §4.6 | None (browser) | Yes |
+| POST | `/api/oauth/sign-in/social` | §4.1 | None | Yes |
+| GET | `/api/oauth/callback/google` | §4.2 | None (browser) | Yes |
 | GET | `/api/me/profile` | §5.1 | Bearer | No |
 | PATCH | `/api/me/profile` | §5.2 | Bearer | No |
 | POST | `/storefront/location/check` | §6.1 | None | Yes |
@@ -1363,7 +1241,7 @@ Every row matches `src/interface/http/routes/index.js`. Use the **Doc §** colum
 | GET | `/api/catalog/items` | §12.3 | None | No |
 | GET | `/api/catalog/search` | §12.4 | None | No |
 
-**Total: 37** route registrations (parameterized paths count as one row each).
+**Total: 33** route registrations (parameterized paths count as one row each).
 
 ---
 

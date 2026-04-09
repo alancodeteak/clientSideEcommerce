@@ -14,9 +14,3 @@ export const oauthSocialBodySchema = z
       .optional()
   })
   .strict();
-
-/** `GET /api/oauth/dev/google-start` */
-export const oauthDevGoogleStartQuerySchema = z.object({
-  shopId: z.string().uuid().optional(),
-  callbackURL: z.string().url().optional()
-});

@@ -5,7 +5,7 @@ import { shopAllowsCustomers } from "./shopPolicy.js";
 
 /**
  * Upsert storefront user/customer and optional shop membership after Google verified email.
- * Unlike `registerCustomer`, an already-active membership is success (sign-in).
+ * An already-active membership is treated as success (returning user sign-in).
  * @param {{ authRepo: import("../../ports/repositories/CustomerAuthRepo.js").CustomerAuthRepo }} deps
  */
 export function provisionCustomerForOAuthShop({ authRepo }) {
@@ -15,11 +15,17 @@ export function provisionCustomerForOAuthShop({ authRepo }) {
    */
   return async function execute(client, input) {
     const { email, displayName, shopId } = input;
+    if (await authRepo.isEmailUsedByActiveShopStaff(client, email)) {
+      throw new AuthError("Invalid credentials");
+    }
 
     let user = await authRepo.getUserByEmail(client, email);
     if (!user) {
       user = await authRepo.insertUser(client, { email, password_hash: null });
     } else if (!user.is_active) {
+      throw new AuthError("Invalid credentials");
+    }
+    if (await authRepo.isUserActiveShopStaff(client, user.id)) {
       throw new AuthError("Invalid credentials");
     }
 

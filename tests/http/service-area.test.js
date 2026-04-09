@@ -19,7 +19,8 @@ describe("POST /storefront/location/check", () => {
 
   it("returns 400 when latitude is out of range", async () => {
     const res = await request(app)
-      .post("/storefront/location/check?shopId=00000000-0000-4000-8000-000000000000")
+      .post("/storefront/location/check")
+      .set("x-shop-id", "00000000-0000-4000-8000-000000000000")
       .send({ lat: 91, lng: 0 })
       .expect(400);
     expect(res.body.error?.code).toBe("VALIDATION_ERROR");

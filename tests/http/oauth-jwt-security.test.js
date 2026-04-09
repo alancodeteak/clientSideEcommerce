@@ -9,12 +9,8 @@ describe("POST /api/auth/oauth/jwt (security)", () => {
     app = getTestApp();
   });
 
-  it("returns 403 when email-only exchange is disabled (default)", async () => {
-    const res = await request(app)
-      .post("/api/auth/oauth/jwt")
-      .send({ email: "anyone@example.com" })
-      .expect(403);
-
-    expect(res.body.error?.code).toBe("FORBIDDEN");
+  it("returns 401 when OAuth exchange cookie is missing", async () => {
+    const res = await request(app).post("/api/auth/oauth/jwt").send({}).expect(401);
+    expect(res.body.error?.code).toBe("UNAUTHORIZED");
   });
 });

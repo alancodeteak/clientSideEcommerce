@@ -8,7 +8,8 @@ import { buildProfileFromShops } from "./customerProfile.js";
  * @param {import("pg").PoolClient} client
  * @param {string} userId
  */
-export async function buildStorefrontSessionResponse(authRepo, client, userId) {
+export async function buildStorefrontSessionResponse(authRepo, client, userId, sessionMeta = {}) {
+  void sessionMeta;
   const user = await authRepo.getUserById(client, userId);
   if (!user || !user.is_active) {
     throw new AuthError("Invalid credentials");

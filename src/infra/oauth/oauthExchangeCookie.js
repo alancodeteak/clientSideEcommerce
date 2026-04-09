@@ -19,6 +19,8 @@ export function signOAuthExchangeCookie(userId) {
     { sub: userId, typ: "oauth_exch" },
     env.JWT_SECRET,
     {
+      algorithm: "HS256",
+      keyid: env.JWT_KEY_ID,
       issuer: env.JWT_ISSUER,
       audience: "storefront-oauth-exchange",
       expiresIn: "15m"
@@ -32,6 +34,7 @@ export function signOAuthExchangeCookie(userId) {
  */
 export function verifyOAuthExchangeCookie(token) {
   const payload = jwt.verify(token, env.JWT_SECRET, {
+    algorithms: env.JWT_ALLOWED_ALGORITHMS,
     issuer: env.JWT_ISSUER,
     audience: "storefront-oauth-exchange"
   });

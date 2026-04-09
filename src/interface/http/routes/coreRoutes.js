@@ -8,7 +8,8 @@ export function mountCoreRoutes(r, deps) {
       ok: true,
       service: "clientside-ecommerce-api",
       health: "/health",
-      oauthAfterLogin: "/api/oauth/success"
+      openapi: "/openapi.json",
+      swaggerUi: "/api-docs"
     });
   });
 

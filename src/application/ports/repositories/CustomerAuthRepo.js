@@ -29,6 +29,30 @@ export class CustomerAuthRepo {
     throw new Error("Not implemented");
   }
 
+  async getUserByPhone(_client, _phone) {
+    void _client;
+    void _phone;
+    throw new Error("Not implemented");
+  }
+
+  async isEmailUsedByActiveShopStaff(_client, _email) {
+    void _client;
+    void _email;
+    throw new Error("Not implemented");
+  }
+
+  async isPhoneUsedByActiveShopStaff(_client, _phone) {
+    void _client;
+    void _phone;
+    throw new Error("Not implemented");
+  }
+
+  async isUserActiveShopStaff(_client, _userId) {
+    void _client;
+    void _userId;
+    throw new Error("Not implemented");
+  }
+
   async getCustomerByUserId(_client, _userId) {
     void _client;
     void _userId;
@@ -69,6 +93,39 @@ export class CustomerAuthRepo {
   async insertUser(_client, _row) {
     void _client;
     void _row;
+    throw new Error("Not implemented");
+  }
+
+  async insertOtpChallenge(_client, _row) {
+    void _client;
+    void _row;
+    throw new Error("Not implemented");
+  }
+
+  async countOtpChallengesSince(_client, _phone, _shopId, _sinceIso) {
+    void _client;
+    void _phone;
+    void _shopId;
+    void _sinceIso;
+    throw new Error("Not implemented");
+  }
+
+  async findLatestOtpChallenge(_client, _phone, _shopId) {
+    void _client;
+    void _phone;
+    void _shopId;
+    throw new Error("Not implemented");
+  }
+
+  async incrementOtpChallengeAttempts(_client, _challengeId) {
+    void _client;
+    void _challengeId;
+    throw new Error("Not implemented");
+  }
+
+  async consumeOtpChallenge(_client, _challengeId) {
+    void _client;
+    void _challengeId;
     throw new Error("Not implemented");
   }
 

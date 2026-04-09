@@ -11,7 +11,7 @@ function shopIdForStorefront(req) {
   try {
     return requireShopId(req.shopId);
   } catch {
-    throw new ValidationError("shopId is required (query, x-shop-id header, or host resolution)");
+    throw new ValidationError("shopId is required (x-shop-id header or host resolution)");
   }
 }
 

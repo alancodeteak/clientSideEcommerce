@@ -1,5 +1,6 @@
 import { OrderRepo } from "../../../application/ports/repositories/OrderRepo.js";
 import { setTenantContext } from "../../../infra/db/tenantContext.js";
+import { toPublicMediaUrl } from "../../../infra/media/publicMediaUrl.js";
 
 /**
  * Purpose: This file is the PostgreSQL implementation of order data access.
@@ -7,6 +8,29 @@ import { setTenantContext } from "../../../infra/db/tenantContext.js";
  * data, updates order state, and writes outbox events for downstream workers.
  */
 export class OrderRepoPg extends OrderRepo {
+  mapOrderItemRow(row) {
+    return {
+      id: row.id,
+      product_id: row.product_id,
+      product_name_snapshot: row.product_name_snapshot,
+      unit_label_snapshot: row.unit_label_snapshot,
+      quantity: row.quantity,
+      unit_price_minor_snapshot: row.unit_price_minor_snapshot,
+      line_total_minor: row.line_total_minor,
+      is_custom: row.is_custom,
+      custom_note: row.custom_note,
+      image:
+        row.image_storage_key != null
+          ? {
+              mediaAssetId: row.image_media_id,
+              storageKey: row.image_storage_key,
+              contentType: row.image_content_type,
+              url: toPublicMediaUrl(row.image_storage_key)
+            }
+          : null
+    };
+  }
+
   async insertOrderWithItemsAndOutbox(client, payload) {
     const {
       shopId,
@@ -84,7 +108,43 @@ export class OrderRepoPg extends OrderRepo {
         LIMIT 100`,
       [shopId, customerIdText]
     );
-    return rows;
+    if (!rows.length) return rows;
+
+    const orderIds = rows.map((r) => r.id);
+    const { rows: itemRows } = await client.query(
+      `SELECT oi.order_id, oi.id, oi.product_id, oi.product_name_snapshot, oi.unit_label_snapshot,
+              oi.quantity::text AS quantity, oi.unit_price_minor_snapshot, oi.line_total_minor,
+              oi.is_custom, oi.custom_note,
+              m.id AS image_media_id,
+              m.storage_key AS image_storage_key,
+              m.content_type AS image_content_type
+         FROM order_items oi
+         LEFT JOIN LATERAL (
+           SELECT pi.media_asset_id
+             FROM product_images pi
+            WHERE pi.product_id = oi.product_id
+              AND pi.shop_id = $2::uuid
+            ORDER BY pi.sort_order ASC
+            LIMIT 1
+         ) pimg ON true
+         LEFT JOIN media_assets m ON m.id = pimg.media_asset_id
+        WHERE oi.order_id = ANY($1::uuid[])
+        ORDER BY oi.order_id ASC, oi.id ASC`,
+      [orderIds, shopId]
+    );
+
+    const itemsByOrderId = new Map();
+    for (const row of itemRows) {
+      const key = String(row.order_id);
+      const arr = itemsByOrderId.get(key) ?? [];
+      arr.push(this.mapOrderItemRow(row));
+      itemsByOrderId.set(key, arr);
+    }
+
+    return rows.map((row) => ({
+      ...row,
+      items: itemsByOrderId.get(String(row.id)) ?? []
+    }));
   }
 
   async getOrderByIdForCustomer(client, shopId, orderId, customerIdText) {
@@ -102,15 +162,27 @@ export class OrderRepoPg extends OrderRepo {
     const order = o[0];
     if (!order) return null;
     const { rows: items } = await client.query(
-      `SELECT id, product_id, product_name_snapshot, unit_label_snapshot,
+      `SELECT oi.id, oi.product_id, oi.product_name_snapshot, oi.unit_label_snapshot,
               quantity::text AS quantity, unit_price_minor_snapshot, line_total_minor,
-              is_custom, custom_note
-         FROM order_items
-        WHERE order_id = $1::uuid
-        ORDER BY id ASC`,
-      [orderId]
+              is_custom, custom_note,
+              m.id AS image_media_id,
+              m.storage_key AS image_storage_key,
+              m.content_type AS image_content_type
+         FROM order_items oi
+         LEFT JOIN LATERAL (
+           SELECT pi.media_asset_id
+             FROM product_images pi
+            WHERE pi.product_id = oi.product_id
+              AND pi.shop_id = $2::uuid
+            ORDER BY pi.sort_order ASC
+            LIMIT 1
+         ) pimg ON true
+         LEFT JOIN media_assets m ON m.id = pimg.media_asset_id
+        WHERE oi.order_id = $1::uuid
+        ORDER BY oi.id ASC`,
+      [orderId, shopId]
     );
-    return { order, items };
+    return { order, items: items.map((row) => this.mapOrderItemRow(row)) };
   }
 
   async listOrdersQueueForShop(client, shopId) {

@@ -7,15 +7,18 @@ import pinoHttp from "pino-http";
 import { randomUUID } from "node:crypto";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
+import swaggerUi from "swagger-ui-express";
 import { createRoutes } from "../interface/http/routes/index.js";
 import { notFound } from "../interface/http/middleware/notFound.js";
 import { errorHandler } from "../interface/http/middleware/errorHandler.js";
 import { createAppContext } from "./composition.js";
+import { getOpenApiDocument } from "../infra/openapi/openapiDocument.js";
 
 export function createExpressApp(ctx) {
   const isNoisePath = (url) => url === "/health" || url === "/";
 
   const app = express();
+  app.set("trust proxy", env.TRUST_PROXY);
 
   app.disable("x-powered-by");
   app.use(
@@ -32,6 +35,21 @@ export function createExpressApp(ctx) {
       autoLogging: {
         ignore(req) {
           return isNoisePath(req.url) || req.method === "OPTIONS";
+        }
+      },
+      serializers: {
+        req(req) {
+          return {
+            id: req.id,
+            method: req.method,
+            url: req.url,
+            ip: req.ip
+          };
+        },
+        res(res) {
+          return {
+            statusCode: res.statusCode
+          };
         }
       },
       customLogLevel(req, res, err) {
@@ -75,11 +93,33 @@ export function createExpressApp(ctx) {
       }
     })
   );
+
+  if (env.ENABLE_API_DOCS) {
+    const openApiDocument = getOpenApiDocument(env);
+    app.get("/openapi.json", (_req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      res.json(openApiDocument);
+    });
+    app.use(
+      "/api-docs",
+      swaggerUi.serve,
+      swaggerUi.setup(openApiDocument, {
+        customSiteTitle: "Storefront API — Swagger UI",
+        customCss: ".swagger-ui .topbar { display: none }",
+        swaggerOptions: {
+          persistAuthorization: true,
+          displayRequestDuration: true
+        }
+      })
+    );
+  }
+
   app.use(helmet());
   app.use(
     cors({
       origin: env.CORS_ORIGIN,
-      credentials: true
+      credentials: true,
+      allowedHeaders: ["content-type", "authorization", "x-shop-id", "x-request-id"]
     })
   );
 

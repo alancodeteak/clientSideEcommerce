@@ -14,12 +14,11 @@ import { createListCategories } from "../application/services/catalog/listCatego
 import { createListProducts } from "../application/services/catalog/listProducts.js";
 import { createSearchCatalog } from "../application/services/catalog/searchCatalog.js";
 import { createGetHealth } from "../application/services/health/getHealth.js";
-import { registerCustomer } from "../application/services/auth/registerCustomer.js";
-import { loginCustomer } from "../application/services/auth/loginCustomer.js";
-import { exchangeOAuthSessionForJwt } from "../application/services/auth/exchangeOAuthSessionForJwt.js";
 import { buildStorefrontSessionResponse } from "../application/services/auth/buildStorefrontSessionResponse.js";
 import { provisionCustomerForOAuthShop } from "../application/services/auth/provisionCustomerForOAuthShop.js";
 import { createAssertCustomerShopAccess } from "../application/services/auth/assertCustomerShopAccess.js";
+import { createRequestCustomerOtp } from "../application/services/auth/requestCustomerOtp.js";
+import { createVerifyCustomerOtp } from "../application/services/auth/verifyCustomerOtp.js";
 import { getCustomerProfile } from "../application/services/profile/getCustomerProfile.js";
 import { updateCustomerProfile } from "../application/services/profile/updateCustomerProfile.js";
 import { createUpdateStorefrontProfile } from "../application/services/profile/updateStorefrontProfile.js";
@@ -30,6 +29,7 @@ import { createStorefrontCatalog } from "../application/services/storefront/stor
 import { createStorefrontCart } from "../application/services/storefront/storefrontCart.js";
 import { createCheckoutStorefront } from "../application/services/checkout/checkoutStorefront.js";
 import { logger } from "../config/logger.js";
+import { ConsoleSmsSender } from "../adapters/sms/consoleSmsSender.js";
 
 export function createAppContext() {
   const catalogRepo = new CatalogRepoPg();
@@ -60,6 +60,22 @@ export function createAppContext() {
   const storefrontCart = createStorefrontCart({ cartRepo, ensureShopForCatalog });
   const assertCustomerShopAccess = createAssertCustomerShopAccess({ authRepo });
   const updateStorefrontProfile = createUpdateStorefrontProfile({ authRepo });
+  const smsSender = new ConsoleSmsSender({
+    nodeEnv: env.NODE_ENV,
+    logOtpInDev: env.LOG_OTP_IN_DEV
+  });
+  const requestCustomerOtp = createRequestCustomerOtp({
+    authRepo,
+    smsSender,
+    otpTtlSeconds: env.OTP_TTL_SECONDS,
+    otpResendSeconds: env.OTP_RESEND_SECONDS,
+    otpRequestWindowSeconds: env.OTP_REQUEST_WINDOW_SECONDS,
+    otpMaxRequestsPerWindow: env.OTP_MAX_REQUESTS_PER_WINDOW
+  });
+  const verifyCustomerOtp = createVerifyCustomerOtp({
+    authRepo,
+    otpMaxAttempts: env.OTP_MAX_ATTEMPTS
+  });
   const checkShopServiceArea = createCheckShopServiceArea({
     shopServiceAreaRepo,
     maxRadiusM: env.SERVICE_AREA_RADIUS_METERS
@@ -89,11 +105,11 @@ export function createAppContext() {
     listCategories: createListCategories({ catalogRepo, ensureShopForCatalog }),
     listProducts: createListProducts({ catalogRepo, ensureShopForCatalog }),
     searchCatalog: createSearchCatalog({ catalogRepo, ensureShopForCatalog }),
-    registerCustomer: registerCustomer({ authRepo }),
-    loginCustomer: loginCustomer({ authRepo }),
-    exchangeOAuthSessionForJwt: exchangeOAuthSessionForJwt({ authRepo }),
     provisionCustomerForOAuthShop: provisionCustomerForOAuthShop({ authRepo }),
-    buildStorefrontSessionResponse: (client, userId) => buildStorefrontSessionResponse(authRepo, client, userId),
+    buildStorefrontSessionResponse: (client, userId, sessionMeta) =>
+      buildStorefrontSessionResponse(authRepo, client, userId, sessionMeta),
+    requestCustomerOtp,
+    verifyCustomerOtp,
     getCustomerProfile: getCustomerProfile({ authRepo }),
     updateCustomerProfile: updateCustomerProfile({ authRepo }),
     checkShopServiceArea,

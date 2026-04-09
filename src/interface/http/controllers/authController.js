@@ -1,36 +1,11 @@
-import { env } from "../../../config/env.js";
-import { ForbiddenError } from "../../../domain/errors/ForbiddenError.js";
-import { ValidationError } from "../../../domain/errors/ValidationError.js";
 import { withClient, withTx } from "../../../infra/db/tx.js";
 import { oauthExchangeCookieOptions, verifyOAuthExchangeCookie } from "../../../infra/oauth/oauthExchangeCookie.js";
+import { logSecurityEvent } from "../../../infra/logging/apiLog.js";
 
 /**
  * Purpose: This file handles authentication HTTP endpoints.
- * It runs register/login/oauth-jwt flows, merges guest cart data
- * after sign-in, and clears auth-related cookies on logout.
+ * OAuth JWT exchange and OTP login handlers.
  */
-function registerHandler(ctx) {
-  return async (req, res, next) => {
-    try {
-      const result = await withTx((client) => ctx.registerCustomer(client, req.body));
-      res.status(201).json(result);
-    } catch (err) {
-      next(err);
-    }
-  };
-}
-
-function loginHandler(ctx) {
-  return async (req, res, next) => {
-    try {
-      const result = await withClient((client) => ctx.loginCustomer(client, req.body));
-      res.json(result);
-    } catch (err) {
-      next(err);
-    }
-  };
-}
-
 function oauthJwtHandler(ctx) {
   return async (req, res, next) => {
     const cookieOpts = oauthExchangeCookieOptions();
@@ -39,51 +14,61 @@ function oauthJwtHandler(ctx) {
       if (rawCookie) {
         try {
           const payload = verifyOAuthExchangeCookie(rawCookie);
-          const result = await withClient((client) => ctx.buildStorefrontSessionResponse(client, payload.sub));
+          const result = await withClient((client) =>
+            ctx.buildStorefrontSessionResponse(client, payload.sub, {
+              ip: req.ip,
+              userAgent: req.get("user-agent") || null
+            })
+          );
           res.clearCookie("storefront_oauth_exchange", cookieOpts);
           return res.json(result);
         } catch {
           res.clearCookie("storefront_oauth_exchange", cookieOpts);
-          const canFallBackToEmail =
-            env.ALLOW_EMAIL_ONLY_JWT_EXCHANGE && Boolean(req.body?.email);
-          if (!canFallBackToEmail) {
-            return res.status(401).json({
-              error: {
-                code: "UNAUTHORIZED",
-                message:
-                  "OAuth exchange cookie expired or invalid. Complete Google sign-in again."
-              }
-            });
-          }
+          return res.status(401).json({
+            error: {
+              code: "UNAUTHORIZED",
+              message:
+                "OAuth exchange cookie expired or invalid. Complete Google sign-in again."
+            }
+          });
         }
       }
-
-      if (!env.ALLOW_EMAIL_ONLY_JWT_EXCHANGE) {
-        throw new ForbiddenError(
-          "JWT exchange requires a Google sign-in cookie or enable ALLOW_EMAIL_ONLY_JWT_EXCHANGE only in trusted non-production environments."
-        );
-      }
-      const email = req.body.email;
-      if (!email) {
-        throw new ValidationError(
-          "email is required for email-only JWT exchange (or complete Google OAuth and send storefront_oauth_exchange cookie)."
-        );
-      }
-      const result = await withClient((client) => ctx.exchangeOAuthSessionForJwt(client, email));
-      res.json(result);
+      return res.status(401).json({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Missing storefront_oauth_exchange cookie. Complete Google sign-in first."
+        }
+      });
     } catch (err) {
       next(err);
     }
   };
 }
 
-function logoutHandler() {
-  return async (_req, res, next) => {
+function otpRequestHandler(ctx) {
+  return async (req, res, next) => {
     try {
-      const cookieOpts = oauthExchangeCookieOptions();
-      res.clearCookie("storefront_oauth_exchange", cookieOpts);
-      res.clearCookie("storefront_serviceability", { path: "/", sameSite: "lax" });
-      res.status(204).send();
+      const out = await withClient((client) => ctx.requestCustomerOtp(client, req.body));
+      logSecurityEvent("otp.requested", req, { phone: req.body?.phone ? "provided" : "missing" });
+      res.json(out);
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+function otpVerifyHandler(ctx) {
+  return async (req, res, next) => {
+    try {
+      const out = await withTx((client) =>
+        ctx.verifyCustomerOtp(client, {
+          ...req.body,
+          ip: req.ip,
+          userAgent: req.get("user-agent") || null
+        })
+      );
+      logSecurityEvent("otp.verified", req);
+      res.json(out);
     } catch (err) {
       next(err);
     }
@@ -91,17 +76,15 @@ function logoutHandler() {
 }
 
 export const authController = {
-  register: (ctx) => registerHandler(ctx),
-  login: (ctx) => loginHandler(ctx),
+  otpRequest: (ctx) => otpRequestHandler(ctx),
+  otpVerify: (ctx) => otpVerifyHandler(ctx),
   oauthJwt: (ctx) => oauthJwtHandler(ctx),
-  logout: () => logoutHandler(),
 
   forCtx(ctx) {
     return {
-      register: registerHandler(ctx),
-      login: loginHandler(ctx),
-      oauthJwt: oauthJwtHandler(ctx),
-      logout: logoutHandler()
+      otpRequest: otpRequestHandler(ctx),
+      otpVerify: otpVerifyHandler(ctx),
+      oauthJwt: oauthJwtHandler(ctx)
     };
   }
 };

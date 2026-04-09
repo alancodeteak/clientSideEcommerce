@@ -27,6 +27,19 @@ export function logApiError(event, req, fields = {}, msg = event) {
   logger.error({ event, ...baseFromReq(req), ...fields }, msg);
 }
 
+export function logSecurityEvent(event, req, fields = {}, level = "info") {
+  const payload = { event: `security.${event}`, ...baseFromReq(req), ...fields };
+  if (level === "warn") {
+    logger.warn(payload, payload.event);
+    return;
+  }
+  if (level === "error") {
+    logger.error(payload, payload.event);
+    return;
+  }
+  logger.info(payload, payload.event);
+}
+
 export function zodIssuesSummary(flattened) {
   if (!flattened) return {};
   const formErrors = Array.isArray(flattened.formErrors) ? flattened.formErrors : [];

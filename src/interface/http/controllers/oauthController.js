@@ -12,30 +12,6 @@ import {
 import { oauthExchangeCookieOptions, signOAuthExchangeCookie } from "../../../infra/oauth/oauthExchangeCookie.js";
 import { createOAuthStatePayload, signOAuthState, verifyOAuthState } from "../../../infra/oauth/oauthState.js";
 
-function devGoogleStartHandler(_ctx) {
-  return async (req, res, next) => {
-    try {
-      if (!assertGoogleOAuthConfigured()) {
-        throw new ServiceUnavailableError(
-          "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
-        );
-      }
-      const shopId = req.query.shopId ?? undefined;
-      const callbackURL = req.query.callbackURL ?? undefined;
-      const signed = signOAuthState(
-        createOAuthStatePayload({ shopId, callbackURL, disableRedirect: false })
-      );
-      const url = buildGoogleAuthorizationUrl(signed);
-      if (!url) {
-        throw new ServiceUnavailableError("Google OAuth is not configured.");
-      }
-      res.redirect(302, url);
-    } catch (err) {
-      next(err);
-    }
-  };
-}
-
 function socialSignInHandler(_ctx) {
   return async (req, res, next) => {
     try {
@@ -44,7 +20,7 @@ function socialSignInHandler(_ctx) {
           "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
         );
       }
-      const shopId = req.body.additionalData?.shopId;
+      const shopId = req.shopId ?? req.body.additionalData?.shopId;
       const callbackURL = req.body.callbackURL ?? undefined;
       const disableRedirect = !!req.body.disableRedirect;
       const signed = signOAuthState(
@@ -90,7 +66,7 @@ function googleCallbackHandler(ctx) {
       const callbackURL =
         typeof payload.callbackURL === "string" && payload.callbackURL
           ? payload.callbackURL
-          : `${base}/api/oauth/success`;
+          : `${base}/`;
 
       const accessToken = await exchangeGoogleAuthorizationCode(code);
       const info = await fetchGoogleUserInfo(accessToken);
@@ -119,40 +95,12 @@ function googleCallbackHandler(ctx) {
 }
 
 export const oauthController = {
-  ok: () => (_req, res, next) => {
-    try {
-      res.json({ ok: true });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  success: () => (_req, res) => {
-    res.json({
-      ok: true,
-      message:
-        "POST /api/auth/oauth/jwt from this origin with credentials (include cookies) to receive accessToken."
-    });
-  },
-
-  signInSocialGet: () => (_req, res) => {
-    res.status(405).set("Allow", "POST").json({
-      error: {
-        code: "METHOD_NOT_ALLOWED",
-        message: "Use POST with JSON body (provider, optional disableRedirect, callbackURL, additionalData)."
-      }
-    });
-  },
-
-  devGoogleStart: (_ctx) => devGoogleStartHandler(_ctx),
-
   socialSignIn: (_ctx) => socialSignInHandler(_ctx),
 
   googleCallback: (ctx) => googleCallbackHandler(ctx),
 
   forCtx(ctx) {
     return {
-      devGoogleStart: devGoogleStartHandler(ctx),
       socialSignIn: socialSignInHandler(ctx),
       googleCallback: googleCallbackHandler(ctx)
     };

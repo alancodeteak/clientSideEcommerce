@@ -9,7 +9,7 @@ import { logApiWarn } from "../../../infra/logging/apiLog.js";
  */
 export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck }) {
   /**
-   * Requires `Authorization: Bearer <JWT>` from login/register (or a trusted JWT exchange).
+   * Requires `Authorization: Bearer <JWT>` from `POST /api/auth/oauth/jwt` (or a trusted JWT).
    * Optionally re-checks DB so revoked/blocked users lose access before token expiry.
    *
    * Sets `req.customerAuth` with `{ userId, customerId, shopId?, role }`.

@@ -24,7 +24,6 @@ function coerceInt(v, fallback, min, max) {
 
 export const catalogSearchQuerySchema = z
   .object({
-    shopId: optUuid,
     type: z.preprocess(
       (v) => singleQuery(v) ?? "both",
       z.enum(["products", "categories", "both"])

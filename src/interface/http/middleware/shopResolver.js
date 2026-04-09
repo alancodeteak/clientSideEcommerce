@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Purpose: This middleware finds the shop ID from query, header, subdomain, or custom domain.
+// Purpose: Resolves shop ID from x-shop-id header, then subdomain, then custom domain (no query params).
 const uuidSchema = z.string().uuid();
 
 export function createShopResolver({ shopLookupRepo, storefrontRootDomain }) {
@@ -20,19 +20,12 @@ export function createShopResolver({ shopLookupRepo, storefrontRootDomain }) {
 
   return async function shopResolver(req, res, next) {
     try {
-      const qRaw = req.query?.shopId ?? req.query?.shop_id;
-      const q = Array.isArray(qRaw) ? qRaw[0] : qRaw;
       const headerRaw = req.headers["x-shop-id"];
       const header = Array.isArray(headerRaw) ? headerRaw[0] : headerRaw;
 
       let shopId = null;
 
-      if (q != null && String(q).trim() !== "") {
-        const parsed = uuidSchema.safeParse(String(q).trim());
-        if (parsed.success) shopId = parsed.data;
-      }
-
-      if (!shopId && header != null && String(header).trim() !== "") {
+      if (header != null && String(header).trim() !== "") {
         const parsed = uuidSchema.safeParse(String(header).trim());
         if (parsed.success) shopId = parsed.data;
       }

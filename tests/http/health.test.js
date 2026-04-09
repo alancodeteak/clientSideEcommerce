@@ -9,11 +9,12 @@ describe("GET /", () => {
     app = getTestApp();
   });
 
-  it("returns 200 with pointers (avoids bare-root ROUTE_NOT_FOUND after OAuth redirect)", async () => {
+  it("returns 200 with service discovery pointers", async () => {
     const res = await request(app).get("/").expect(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.service).toBe("clientside-ecommerce-api");
-    expect(res.body.oauthAfterLogin).toBe("/api/oauth/success");
+    expect(res.body.openapi).toBe("/openapi.json");
+    expect(res.body.swaggerUi).toBe("/api-docs");
   });
 });
 

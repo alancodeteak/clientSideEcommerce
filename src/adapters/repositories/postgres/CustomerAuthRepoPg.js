@@ -10,7 +10,9 @@ import { ValidationError } from "../../../domain/errors/ValidationError.js";
  */
 function registrationSourceFromUserRow(row) {
   if (!row) return "password";
-  return row.password_hash == null ? "google" : "password";
+  if (row.password_hash != null) return "password";
+  if (row.email != null) return "google";
+  return "phone_otp";
 }
 
 function withRegistrationSource(row) {
@@ -81,6 +83,67 @@ export class CustomerAuthRepoPg extends CustomerAuthRepo {
       [email]
     );
     return withRegistrationSource(rows[0]);
+  }
+
+  async getUserByPhone(client, phone) {
+    const { rows } = await client.query(
+      `SELECT id, email, phone, password_hash, is_active
+         FROM users
+        WHERE phone = $1`,
+      [phone]
+    );
+    return withRegistrationSource(rows[0]);
+  }
+
+  async isEmailUsedByActiveShopStaff(client, email) {
+    const normalized = String(email || "").trim().toLowerCase();
+    if (!normalized) return false;
+    const { rows } = await client.query(
+      `SELECT 1
+         FROM users u
+         JOIN shop_staff ss ON ss.user_id = u.id
+        WHERE lower(u.email) = $1
+          AND ss.role IN ('owner', 'admin', 'manager', 'picker')
+          AND ss.is_active = true
+          AND ss.is_deleted = false
+          AND ss.is_blocked = false
+        LIMIT 1`,
+      [normalized]
+    );
+    return rows.length > 0;
+  }
+
+  async isPhoneUsedByActiveShopStaff(client, phone) {
+    const normalized = String(phone || "").trim();
+    if (!normalized) return false;
+    const { rows } = await client.query(
+      `SELECT 1
+         FROM users u
+         JOIN shop_staff ss ON ss.user_id = u.id
+        WHERE u.phone = $1
+          AND ss.role IN ('owner', 'admin', 'manager', 'picker')
+          AND ss.is_active = true
+          AND ss.is_deleted = false
+          AND ss.is_blocked = false
+        LIMIT 1`,
+      [normalized]
+    );
+    return rows.length > 0;
+  }
+
+  async isUserActiveShopStaff(client, userId) {
+    const { rows } = await client.query(
+      `SELECT 1
+         FROM shop_staff ss
+        WHERE ss.user_id = $1::uuid
+          AND ss.role IN ('owner', 'admin', 'manager', 'picker')
+          AND ss.is_active = true
+          AND ss.is_deleted = false
+          AND ss.is_blocked = false
+        LIMIT 1`,
+      [userId]
+    );
+    return rows.length > 0;
   }
 
   async getCustomerByUserId(client, userId) {
@@ -311,14 +374,70 @@ export class CustomerAuthRepoPg extends CustomerAuthRepo {
     }
   }
 
-  async insertUser(client, { email, password_hash }) {
+  async insertUser(client, { email = null, phone = null, password_hash = null }) {
     const { rows } = await client.query(
-      `INSERT INTO users (email, password_hash)
-       VALUES ($1, $2)
-       RETURNING id, email, password_hash`,
-      [email, password_hash]
+      `INSERT INTO users (email, phone, password_hash)
+       VALUES ($1, $2, $3)
+       RETURNING id, email, phone, password_hash, is_active`,
+      [email, phone, password_hash]
     );
     return withRegistrationSource(rows[0]);
+  }
+
+  async insertOtpChallenge(client, { phone, shopId, codeHash, expiresAtIso }) {
+    const { rows } = await client.query(
+      `INSERT INTO customer_otp_challenges (phone, shop_id, code_hash, expires_at)
+       VALUES ($1, $2::uuid, $3, $4::timestamptz)
+       RETURNING id, phone, shop_id, code_hash, attempts, consumed_at, expires_at, created_at`,
+      [phone, shopId, codeHash, expiresAtIso]
+    );
+    return rows[0];
+  }
+
+  async countOtpChallengesSince(client, phone, shopId, sinceIso) {
+    const { rows } = await client.query(
+      `SELECT count(*)::int AS cnt
+         FROM customer_otp_challenges
+        WHERE phone = $1
+          AND shop_id = $2::uuid
+          AND created_at >= $3::timestamptz`,
+      [phone, shopId, sinceIso]
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  async findLatestOtpChallenge(client, phone, shopId) {
+    const { rows } = await client.query(
+      `SELECT id, phone, shop_id, code_hash, attempts, consumed_at, expires_at, created_at
+         FROM customer_otp_challenges
+        WHERE phone = $1
+          AND shop_id = $2::uuid
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [phone, shopId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async incrementOtpChallengeAttempts(client, challengeId) {
+    const { rows } = await client.query(
+      `UPDATE customer_otp_challenges
+          SET attempts = attempts + 1
+        WHERE id = $1::uuid
+        RETURNING id, attempts`,
+      [challengeId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async consumeOtpChallenge(client, challengeId) {
+    await client.query(
+      `UPDATE customer_otp_challenges
+          SET consumed_at = now()
+        WHERE id = $1::uuid
+          AND consumed_at IS NULL`,
+      [challengeId]
+    );
   }
 
   async insertCustomer(client, { user_id, display_name }) {

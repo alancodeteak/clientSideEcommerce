@@ -2,14 +2,13 @@
   "info": {
     "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "name": "ClientSide Ecommerce API",
-    "description": "Storefront API (2026-04): health, auth, Google OAuth2, JWT exchange, profile, service area, catalog, storefront cart/checkout/account/orders.\n\n**Setup**\n- `npm run dev` — default **4100**. `npm run db:migrate`. A **shop** row must exist; set **`shopId`** (collection or environment variable).\n- **`.env`:** `DATABASE_URL`, `JWT_SECRET`, `API_PUBLIC_URL`, Google OAuth vars. Redirect URI in Google Console: `{API_PUBLIC_URL}/api/oauth/callback/google`.\n\n**JWT**\n- Login/register/oauth/jwt return **`accessToken`**. Protected routes: `Authorization: Bearer {{accessToken}}`.\n\n**Postman + OAuth JWT exchange**\n- **Cookie flow:** After Google opens `/api/oauth/callback/google`, the **`storefront_oauth_exchange`** cookie is set on the API host. Postman’s cookie jar often **does not** get that cookie unless you use the Postman **Interceptor** or paste it manually.\n- **`POST /api/auth/oauth/jwt`** with body **`{}`** when the valid cookie is sent.\n- **Dev email mint:** body `{\"email\":\"…\"}` only if **`ALLOW_EMAIL_ONLY_JWT_EXCHANGE=true`** (never production). If you get **401** with email, clear **Cookies** for `localhost:4100` — a **stale** `storefront_oauth_exchange` blocks the email path unless the server falls through.\n\n**Architecture note**\n- Picker/staff APIs are not served by this app anymore; picker notifications are handled by a separate server/process.\n\n**CORS**\n- API allows credentials for **`CORS_ORIGIN`** (e.g. `http://localhost:5173`). OAuth `POST /api/oauth/sign-in/social` may need **`Origin`** matching that value when testing from CLI.",
+    "description": "Storefront API (2026-04): health, OTP auth, Google OAuth2 + JWT exchange, profile, service area, catalog, storefront cart/checkout/account/orders.\n\n**Tenant / shop**\n- Send **`x-shop-id: {{shopId}}`** on tenant-scoped routes (catalog, storefront, checkout, …). Query parameters **`shopId`** / **`shop_id`** are not read for resolution.\n\n**Setup**\n- `npm run dev` — default **4100**. `npm run db:migrate`. A **shop** row must exist; set **`shopId`** (collection or environment variable).\n- **`.env`:** `DATABASE_URL`, `JWT_SECRET`, `API_PUBLIC_URL`, Google OAuth vars. Redirect URI in Google Console: `{API_PUBLIC_URL}/api/oauth/callback/google`.\n\n**JWT**\n- **`POST /api/auth/otp/verify`** and **`POST /api/auth/oauth/jwt`** return **`accessToken`**.\n- Protected routes: `Authorization: Bearer {{accessToken}}`.\n\n**Postman + OAuth JWT exchange**\n- Cookie flow: after browser Google callback to `/api/oauth/callback/google`, cookie **`storefront_oauth_exchange`** is set on API host.\n- `POST /api/auth/oauth/jwt` with body `{}` succeeds only when valid cookie is sent.\n\n**Architecture note**\n- Picker/staff APIs are not served by this app anymore; picker notifications are handled by a separate server/process.\n\n**CORS**\n- API allows credentials for **`CORS_ORIGIN`** (e.g. `http://localhost:5173`). OAuth `POST /api/oauth/sign-in/social` may need **`Origin`** matching that value when testing from CLI.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:4100" },
     { "key": "shopId", "value": "" },
-    { "key": "email", "value": "buyer@example.com" },
-    { "key": "password", "value": "secret12" },
+    { "key": "phone", "value": "+919999999999" },
     { "key": "accessToken", "value": "" },
     { "key": "corsOrigin", "value": "http://localhost:5173" }
   ],
@@ -23,7 +22,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/",
-            "description": "Service stub: `ok`, `service`, links to `/health` and `oauthAfterLogin`."
+            "description": "Service stub: `ok`, `service`, links to `/health`, `/openapi.json`, and `/api-docs`."
           },
           "response": []
         },
@@ -43,36 +42,21 @@
       "name": "Auth",
       "item": [
         {
-          "name": "POST /api/auth/register",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "  const j = pm.response.json();",
-                  "  if (j.accessToken) pm.collectionVariables.set('accessToken', j.accessToken);",
-                  "  if (j.shop && j.shop.id) pm.collectionVariables.set('shopId', j.shop.id);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "POST /api/auth/otp/request",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"displayName\": \"Test Buyer\"\n}"
+              "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"shopId\": \"{{shopId}}\"\n}"
             },
-            "url": "{{baseUrl}}/api/auth/register",
-            "description": "**201** — `accessToken`, `user`, `shop`, `customer`, `profile`. **409** — membership conflict.\n\nTest script saves **`accessToken`** and **`shopId`**.\n\n`password`: min 6 chars."
+            "url": "{{baseUrl}}/api/auth/otp/request",
+            "description": "Request an OTP for a phone number + shop."
           },
           "response": []
         },
         {
-          "name": "POST /api/auth/login",
+          "name": "POST /api/auth/otp/verify",
           "event": [
             {
               "listen": "test",
@@ -93,10 +77,10 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+              "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"shopId\": \"{{shopId}}\",\n  \"code\": \"123456\"\n}"
             },
-            "url": "{{baseUrl}}/api/auth/login",
-            "description": "**200** — `accessToken`, `shopIds`, `profile`. **401** — invalid credentials.\n\nTest script saves **`accessToken`** and first **`shopId`**."
+            "url": "{{baseUrl}}/api/auth/otp/verify",
+            "description": "Verify OTP and issue customer JWT."
           },
           "response": []
         },
@@ -125,36 +109,7 @@
               "raw": "{}"
             },
             "url": "{{baseUrl}}/api/auth/oauth/jwt",
-            "description": "**After Google callback:** Exchange **`storefront_oauth_exchange`** cookie for JWT. Body **`{}`** is valid (`email` optional in schema).\n\nRequires the cookie on the request (browser same-origin, or Postman cookie jar / manual cookie). **401** if cookie missing or invalid."
-          },
-          "response": []
-        },
-        {
-          "name": "POST /api/auth/oauth/jwt (dev email only)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "  const j = pm.response.json();",
-                  "  if (j.accessToken) pm.collectionVariables.set('accessToken', j.accessToken);",
-                  "  if (j.shopIds && j.shopIds[0]) pm.collectionVariables.set('shopId', j.shopIds[0]);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\"\n}"
-            },
-            "url": "{{baseUrl}}/api/auth/oauth/jwt",
-            "description": "**Dev only:** requires **`ALLOW_EMAIL_ONLY_JWT_EXCHANGE=true`** in `.env`. Mints JWT for an existing **user + customer** with this email. **403** if flag off and no cookie.\n\nClear bad **`storefront_oauth_exchange`** cookies in Postman if you get **401** with a valid email."
+            "description": "After Google callback, exchange `storefront_oauth_exchange` cookie for JWT. Body `{}` is valid.\n\nRequires a valid cookie; returns **401** if cookie is missing/invalid."
           },
           "response": []
         }
@@ -163,46 +118,6 @@
     {
       "name": "OAuth (Google)",
       "item": [
-        {
-          "name": "GET /api/oauth/ok",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/oauth/ok",
-            "description": "Sanity: `{ \"ok\": true }`."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/oauth/success",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/oauth/success",
-            "description": "Landing hint after callback. Browser should then **`POST /api/auth/oauth/jwt`** with credentials/cookie."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/oauth/sign-in/social (expect 405)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/oauth/sign-in/social",
-            "description": "**405** — use **POST** for social sign-in."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/oauth/dev/google-start",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/oauth/dev/google-start?shopId={{shopId}}",
-            "description": "**302** to Google in a real browser. Query: optional **`shopId`**, **`callbackURL`**.\n\nRequires **`GOOGLE_CLIENT_ID`** / **`GOOGLE_CLIENT_SECRET`** / **`API_PUBLIC_URL`**."
-          },
-          "response": []
-        },
         {
           "name": "GET /api/oauth/callback/google (browser only)",
           "request": {
@@ -219,14 +134,15 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Origin", "value": "{{corsOrigin}}" }
+              { "key": "Origin", "value": "{{corsOrigin}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"provider\": \"google\",\n  \"disableRedirect\": true,\n  \"callbackURL\": \"{{baseUrl}}/api/oauth/success\",\n  \"additionalData\": {\n    \"shopId\": \"{{shopId}}\"\n  }\n}"
+              "raw": "{\n  \"provider\": \"google\",\n  \"disableRedirect\": true,\n  \"callbackURL\": \"{{baseUrl}}/\"\n}"
             },
             "url": "{{baseUrl}}/api/oauth/sign-in/social",
-            "description": "**`disableRedirect: true`** — **200** `{ \"url\" }` for opening Google in browser.\n\nOmit **`disableRedirect`** for **302** redirect (browser + cookie state).\n\n**`additionalData.shopId`**: optional UUID to provision membership after Google.\n\n**503** if Google OAuth env missing."
+            "description": "**`disableRedirect: true`** — **200** `{ \"url\" }` for opening Google in browser.\n\nOmit **`disableRedirect`** for **302** redirect (browser + cookie state).\n\nTenant: **`x-shop-id`** header (preferred) or **`additionalData.shopId`** (header wins if both sent).\n\n**503** if Google OAuth env missing."
           },
           "response": []
         }
@@ -270,19 +186,22 @@
       ]
     },
     {
-      "name": "Shops",
+      "name": "Serviceability",
       "item": [
         {
-          "name": "POST /api/shops/:shopId/service-area/check",
+          "name": "POST /storefront/location/check",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"lat\": 12.9716,\n  \"lng\": 77.5946\n}"
             },
-            "url": "{{baseUrl}}/api/shops/{{shopId}}/service-area/check",
-            "description": "**200** — `inServiceArea`, `distanceM`, `maxRadiusM`, `message`, …"
+            "url": "{{baseUrl}}/storefront/location/check",
+            "description": "**200** — `serviceable`, `distanceM`, `maxRadiusM`. Uses tenant from `x-shop-id` (or host resolution)."
           },
           "response": []
         }
@@ -295,9 +214,9 @@
           "name": "GET /api/catalog/search",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/catalog/search?shopId={{shopId}}&type=both&q=&categoryId=&parentId=&availability=&productSort=name&productOrder=asc&categorySort=sort_order&categoryOrder=asc&productLimit=100&productOffset=0&categoryLimit=500&categoryOffset=0",
-            "description": "Requires **`shopId`** query or **`x-shop-id`** header.\n\n**type:** `products` | `categories` | `both`.\n\n**q:** optional search (name/slug).\n\nProducts: `categoryId`, `availability`, `productSort`, `productOrder`, `productLimit`, `productOffset`.\n\nCategories: `parentId`, `categorySort`, `categoryOrder`, `categoryLimit`, `categoryOffset`.\n\n**200:** `{ products, categories }` (arrays may be omitted when filtered)."
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/api/catalog/search?type=both&q=&categoryId=&parentId=&availability=&productSort=name&productOrder=asc&categorySort=sort_order&categoryOrder=asc&productLimit=100&productOffset=0&categoryLimit=500&categoryOffset=0",
+            "description": "Requires **`x-shop-id`** (or host-based shop resolution).\n\n**type:** `products` | `categories` | `both`.\n\n**q:** optional search (name/slug).\n\nProducts: `categoryId`, `availability`, `productSort`, `productOrder`, `productLimit`, `productOffset`.\n\nCategories: `parentId`, `categorySort`, `categoryOrder`, `categoryLimit`, `categoryOffset`.\n\n**200:** `{ products, categories }` (arrays may be omitted when filtered)."
           },
           "response": []
         },
@@ -305,8 +224,8 @@
           "name": "GET /api/catalog/categories",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/catalog/categories?shopId={{shopId}}",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/api/catalog/categories",
             "description": "Root categories. Optional **`parentId`** (UUID) for children."
           },
           "response": []
@@ -315,29 +234,19 @@
           "name": "GET /api/catalog/products",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/catalog/products?shopId={{shopId}}",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/api/catalog/products",
             "description": "Active products. Optional **`categoryId`**."
           },
           "response": []
         },
         {
-          "name": "GET /api/catalog/items (query shopId)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/catalog/items?shopId={{shopId}}",
-            "description": "Same as **products** (active items)."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/catalog/items (header x-shop-id)",
+          "name": "GET /api/catalog/items",
           "request": {
             "method": "GET",
             "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
             "url": "{{baseUrl}}/api/catalog/items",
-            "description": "**shopId** via header instead of query."
+            "description": "Same as **products** (active items)."
           },
           "response": []
         }
@@ -350,13 +259,16 @@
           "name": "POST /storefront/location/check",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"lat\": 12.9716,\n  \"lng\": 77.5946\n}"
             },
             "url": "{{baseUrl}}/storefront/location/check",
-            "description": "Checks if location is serviceable and sets `storefront_serviceability` cookie."
+            "description": "Checks if location is serviceable and sets `storefront_serviceability` cookie. Requires **`x-shop-id`** (or host-based shop)."
           },
           "response": []
         },
@@ -364,8 +276,8 @@
           "name": "GET /storefront/categories",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/storefront/categories?shop_id={{shopId}}",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/storefront/categories",
             "description": "Public storefront categories for the resolved shop."
           },
           "response": []
@@ -374,8 +286,8 @@
           "name": "GET /storefront/products",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/storefront/products?shop_id={{shopId}}&limit=24",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/storefront/products?limit=24",
             "description": "Public storefront products with optional `category_id`, `search`, `cursor`, `availability`."
           },
           "response": []
@@ -384,8 +296,8 @@
           "name": "GET /storefront/products/:slug",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/storefront/products/sample-slug?shop_id={{shopId}}",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/storefront/products/sample-slug",
             "description": "Fetch one storefront product by slug."
           },
           "response": []
@@ -394,8 +306,8 @@
           "name": "POST /storefront/cart",
           "request": {
             "method": "POST",
-            "header": [],
-            "url": "{{baseUrl}}/storefront/cart?shop_id={{shopId}}",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/storefront/cart",
             "description": "Create or get cart for guest (cookie session) or customer (Bearer token)."
           },
           "response": []
@@ -404,8 +316,8 @@
           "name": "GET /storefront/cart",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/storefront/cart?shop_id={{shopId}}",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/storefront/cart",
             "description": "Get cart contents for guest/customer scope."
           },
           "response": []
@@ -414,12 +326,15 @@
           "name": "POST /storefront/cart/items",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"productId\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 1\n}"
             },
-            "url": "{{baseUrl}}/storefront/cart/items?shop_id={{shopId}}",
+            "url": "{{baseUrl}}/storefront/cart/items",
             "description": "Add one item to cart."
           },
           "response": []
@@ -428,12 +343,15 @@
           "name": "PATCH /storefront/cart/items/:itemId",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"quantity\": 2\n}"
             },
-            "url": "{{baseUrl}}/storefront/cart/items/00000000-0000-0000-0000-000000000000?shop_id={{shopId}}",
+            "url": "{{baseUrl}}/storefront/cart/items/00000000-0000-0000-0000-000000000000",
             "description": "Update cart item quantity."
           },
           "response": []
@@ -442,8 +360,8 @@
           "name": "DELETE /storefront/cart/items/:itemId",
           "request": {
             "method": "DELETE",
-            "header": [],
-            "url": "{{baseUrl}}/storefront/cart/items/00000000-0000-0000-0000-000000000000?shop_id={{shopId}}",
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
+            "url": "{{baseUrl}}/storefront/cart/items/00000000-0000-0000-0000-000000000000",
             "description": "Remove one cart item."
           },
           "response": []
@@ -454,13 +372,14 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"notes\": \"Leave at the door\"\n}"
             },
-            "url": "{{baseUrl}}/storefront/checkout?shop_id={{shopId}}",
+            "url": "{{baseUrl}}/storefront/checkout",
             "description": "Customer checkout. Creates order, outbox `order.created`, clears cart."
           },
           "response": []
@@ -471,13 +390,14 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"displayName\": \"Buyer Name\",\n  \"phone\": \"+919999999999\"\n}"
             },
-            "url": "{{baseUrl}}/storefront/profile?shop_id={{shopId}}",
+            "url": "{{baseUrl}}/storefront/profile",
             "description": "Update storefront profile fields (at least one of `displayName` or `phone`)."
           },
           "response": []
@@ -486,8 +406,11 @@
           "name": "GET /storefront/address",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/storefront/address?shop_id={{shopId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
+            ],
+            "url": "{{baseUrl}}/storefront/address",
             "description": "Get storefront delivery address."
           },
           "response": []
@@ -498,13 +421,14 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"line1\": \"10 Example Street\",\n  \"city\": \"Bengaluru\",\n  \"state\": \"KA\",\n  \"postalCode\": \"560001\",\n  \"country\": \"IN\",\n  \"lat\": 12.9716,\n  \"lng\": 77.5946\n}"
             },
-            "url": "{{baseUrl}}/storefront/address?shop_id={{shopId}}",
+            "url": "{{baseUrl}}/storefront/address",
             "description": "Create or replace storefront address."
           },
           "response": []
@@ -515,13 +439,14 @@
             "method": "PATCH",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"landmark\": \"Near metro station\"\n}"
             },
-            "url": "{{baseUrl}}/storefront/address?shop_id={{shopId}}",
+            "url": "{{baseUrl}}/storefront/address",
             "description": "Patch storefront address fields."
           },
           "response": []
@@ -530,8 +455,11 @@
           "name": "GET /storefront/orders",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/storefront/orders?shop_id={{shopId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
+            ],
+            "url": "{{baseUrl}}/storefront/orders",
             "description": "List storefront customer orders."
           },
           "response": []
@@ -540,8 +468,11 @@
           "name": "GET /storefront/orders/:id",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/storefront/orders/00000000-0000-0000-0000-000000000000?shop_id={{shopId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-shop-id", "value": "{{shopId}}" }
+            ],
+            "url": "{{baseUrl}}/storefront/orders/00000000-0000-0000-0000-000000000000",
             "description": "Get one order detail by order id."
           },
           "response": []

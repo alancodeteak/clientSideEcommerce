@@ -13,13 +13,20 @@ const pool = new pg.Pool({
     : { rejectUnauthorized: false }
 });
 
-const sqlPath = path.join(__dirname, "../migrations/001_deployment_postgresql.sql");
-const sql = fs.readFileSync(sqlPath, "utf8");
+const migrationsDir = path.join(__dirname, "../migrations");
+const migrationFiles = fs
+  .readdirSync(migrationsDir)
+  .filter((name) => /^\d+.*\.sql$/.test(name))
+  .sort((a, b) => a.localeCompare(b, "en"));
 
 try {
-  await pool.query(sql);
-  // eslint-disable-next-line no-console
-  console.log("Applied migration:", path.basename(sqlPath));
+  for (const fileName of migrationFiles) {
+    const sqlPath = path.join(migrationsDir, fileName);
+    const sql = fs.readFileSync(sqlPath, "utf8");
+    await pool.query(sql);
+    // eslint-disable-next-line no-console
+    console.log("Applied migration:", fileName);
+  }
 } finally {
   await pool.end();
 }

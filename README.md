@@ -15,7 +15,7 @@ The database schema matches `migrations/001_deployment_postgresql.sql`. Apply it
 | `application/services/` | Application services (catalog, auth, profile, shops, health) |
 | `adapters/` | Postgres repositories |
 | `infra/db/` | Connection pool, transactions (`withTx` / `withClient`), tenant session helper |
-| `infra/security` | JWT (customer tokens), password hashing |
+| `infra/security` | JWT (customer tokens), OTP hashing |
 | `interface/http/` | Express routes, controllers, validation middleware |
 | `main/` | `bootstrap.js` entry, `server.js`, `composition.js` (wiring) |
 
@@ -50,7 +50,6 @@ JWT_AUDIENCE=clientside-ecommerce
 JWT_EXPIRES_IN=8h
 
 SERVICE_AREA_RADIUS_METERS=5000
-ALLOW_EMAIL_ONLY_JWT_EXCHANGE=false
 ```
 
 ## Run locally
@@ -68,7 +67,7 @@ Default port: **4100**. Ensure a **shop** row exists before customer registratio
 
 1. Import [postman/ClientSide-Ecommerce-API.postman_collection.json](postman/ClientSide-Ecommerce-API.postman_collection.json).
 2. Optional: [postman/Local.postman_environment.json](postman/Local.postman_environment.json) — environment **ClientSide Ecommerce — Local**.
-3. Set `shopId`, `email`, `password` to match your database.
+3. Set `shopId` and `phone` to match your database/test data.
 4. Run **Health**, then **Auth**; successful auth saves `accessToken` for protected requests.
 
 ## Tests

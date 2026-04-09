@@ -1,24 +1,31 @@
 import { z } from "zod";
 
-const passwordSchema = z.string().min(6).max(128);
-
-export const registerBodySchema = z.object({
-  shopId: z.string().uuid(),
-  email: z.string().email(),
-  password: passwordSchema,
-  displayName: z.string().max(120).optional().nullable()
-});
-
-export const loginBodySchema = z.object({
-  email: z.string().email(),
-  password: passwordSchema,
-  shopId: z.string().uuid().optional()
-});
-
 /** Body optional: `{}` when using `storefront_oauth_exchange` cookie after Google callback. */
 export const oauthJwtBodySchema = z
   .object({
-    email: z.string().email().optional(),
     shopId: z.string().uuid().optional()
+  })
+  .strict();
+
+const phoneSchema = z.string().regex(/^[0-9+][0-9]{7,31}$/, "Invalid phone format");
+
+export const otpRequestBodySchema = z
+  .object({
+    phone: phoneSchema,
+    shopId: z.string().uuid()
+  })
+  .strict();
+
+export const otpVerifyBodySchema = z
+  .object({
+    phone: phoneSchema,
+    shopId: z.string().uuid(),
+    code: z.string().regex(/^\d{6}$/, "OTP code must be 6 digits")
+  })
+  .strict();
+
+export const refreshTokenBodySchema = z
+  .object({
+    refreshToken: z.string().min(20, "Refresh token is required")
   })
   .strict();

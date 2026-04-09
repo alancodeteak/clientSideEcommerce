@@ -1,22 +1,11 @@
 // Schemas and shared parameters for OpenAPI (Swagger) documentation.
 
 export const parameters = {
-  ShopIdQuery: {
-    name: "shop_id",
-    in: "query",
-    description: "Shop UUID (alternative: `shopId` query or `x-shop-id` header)",
-    schema: { type: "string", format: "uuid" }
-  },
-  ShopIdQueryAlt: {
-    name: "shopId",
-    in: "query",
-    description: "Shop UUID (alternative: `shop_id` query or `x-shop-id` header)",
-    schema: { type: "string", format: "uuid" }
-  },
   XShopId: {
     name: "x-shop-id",
     in: "header",
-    description: "Shop UUID tenant header",
+    description:
+      "Tenant shop UUID for cross-origin API clients. Also resolved from storefront host (subdomain/custom domain) when applicable.",
     schema: { type: "string", format: "uuid" }
   },
   Slug: {
@@ -55,31 +44,37 @@ export const schemas = {
     },
     required: ["error"]
   },
-  RegisterRequest: {
-    type: "object",
-    required: ["shopId", "email", "password"],
-    properties: {
-      shopId: { type: "string", format: "uuid" },
-      email: { type: "string", format: "email" },
-      password: { type: "string", minLength: 6, maxLength: 128 },
-      displayName: { type: "string", maxLength: 120, nullable: true }
-    }
-  },
-  LoginRequest: {
-    type: "object",
-    required: ["email", "password"],
-    properties: {
-      email: { type: "string", format: "email" },
-      password: { type: "string", minLength: 6, maxLength: 128 },
-      shopId: { type: "string", format: "uuid" }
-    }
-  },
   OauthJwtRequest: {
     type: "object",
     additionalProperties: false,
     properties: {
-      email: { type: "string", format: "email" },
       shopId: { type: "string", format: "uuid" }
+    }
+  },
+  OtpRequestBody: {
+    type: "object",
+    required: ["phone", "shopId"],
+    additionalProperties: false,
+    properties: {
+      phone: { type: "string", pattern: "^[0-9+][0-9]{7,31}$" },
+      shopId: { type: "string", format: "uuid" }
+    }
+  },
+  OtpVerifyBody: {
+    type: "object",
+    required: ["phone", "shopId", "code"],
+    additionalProperties: false,
+    properties: {
+      phone: { type: "string", pattern: "^[0-9+][0-9]{7,31}$" },
+      shopId: { type: "string", format: "uuid" },
+      code: { type: "string", pattern: "^\\d{6}$" }
+    }
+  },
+  OtpRequestResponse: {
+    type: "object",
+    properties: {
+      ok: { type: "boolean" },
+      message: { type: "string" }
     }
   },
   SessionResponse: {
@@ -209,7 +204,11 @@ export const schemas = {
         type: "object",
         additionalProperties: false,
         properties: {
-          shopId: { type: "string", format: "uuid" }
+          shopId: {
+            type: "string",
+            format: "uuid",
+            description: "Optional if `x-shop-id` is sent; header wins when both are present."
+          }
         }
       }
     }

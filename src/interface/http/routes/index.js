@@ -2,7 +2,6 @@
 
 import { Router } from "express";
 import { authController } from "../controllers/authController.js";
-import { catalogController } from "../controllers/catalogController.js";
 import { healthController } from "../controllers/healthController.js";
 import { oauthController } from "../controllers/oauthController.js";
 import { profileController } from "../controllers/profileController.js";
@@ -14,8 +13,12 @@ import { storefrontController } from "../controllers/storefrontController.js";
 import { storefrontOrdersController } from "../controllers/storefrontOrdersController.js";
 import { createLimiter } from "../middleware/createLimiter.js";
 import { validate } from "../middleware/validate.js";
-import { registerBodySchema, loginBodySchema, oauthJwtBodySchema } from "../validations/authSchemas.js";
-import { oauthDevGoogleStartQuerySchema, oauthSocialBodySchema } from "../validations/oauthSchemas.js";
+import {
+  oauthJwtBodySchema,
+  otpRequestBodySchema,
+  otpVerifyBodySchema
+} from "../validations/authSchemas.js";
+import { oauthSocialBodySchema } from "../validations/oauthSchemas.js";
 import { patchProfileBodySchema } from "../validations/profileSchemas.js";
 import { storefrontLocationBodySchema } from "../validations/storefrontSchemas.js";
 import {
@@ -32,9 +35,7 @@ import {
   storefrontOrderIdParamSchema,
   storefrontProfilePostSchema
 } from "../validations/storefrontRestSchemas.js";
-import { catalogSearchQuerySchema } from "../validations/catalogSearchSchemas.js";
 import { mountAuthRoutes } from "./authRoutes.js";
-import { mountCatalogRoutes } from "./catalogRoutes.js";
 import { mountCoreRoutes } from "./coreRoutes.js";
 import { mountOauthRoutes } from "./oauthRoutes.js";
 import { mountProfileRoutes } from "./profileRoutes.js";
@@ -42,12 +43,32 @@ import { mountStorefrontRoutes } from "./storefrontRoutes.js";
 
 export function createRoutes(ctx) {
   const r = Router();
+  const authScopeKey = (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    const shopId = typeof body.shopId === "string" ? body.shopId.trim() : "";
+    return `${req.ip}:${phone}:${shopId}`;
+  };
 
   const authLimiter = createLimiter({
     windowMs: 15 * 60 * 1000,
     maxTest: 10_000,
     maxProd: 60,
     message: "Too many requests. Try again later."
+  });
+  const otpRequestLimiter = createLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxTest: 10_000,
+    maxProd: 8,
+    message: "Too many OTP requests. Try again later.",
+    keyGenerator: authScopeKey
+  });
+  const otpVerifyLimiter = createLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxTest: 10_000,
+    maxProd: 20,
+    message: "Too many OTP verification attempts. Try again later.",
+    keyGenerator: authScopeKey
   });
 
   const cartMutateLimiter = createLimiter({
@@ -61,7 +82,6 @@ export function createRoutes(ctx) {
   const oauthHandlers = oauthController.forCtx(ctx);
   const profileHandlers = profileController.forCtx(ctx);
   const healthHandlers = healthController.forCtx(ctx);
-  const catalogHandlers = catalogController.forCtx(ctx);
   const storefrontCtl = storefrontController.forCtx(ctx);
   const storefrontCat = storefrontCatalogController.forCtx(ctx);
   const storefrontCart = storefrontCartController.forCtx(ctx);
@@ -73,18 +93,19 @@ export function createRoutes(ctx) {
 
   mountAuthRoutes(r, {
     authLimiter,
+    otpRequestLimiter,
+    otpVerifyLimiter,
     validate,
     handlers: authHandlers,
-    registerBodySchema,
-    loginBodySchema,
-    oauthJwtBodySchema
+    oauthJwtBodySchema,
+    otpRequestBodySchema,
+    otpVerifyBodySchema
   });
 
   mountOauthRoutes(r, {
     authLimiter,
     validate,
     handlers: oauthHandlers,
-    oauthDevGoogleStartQuerySchema,
     oauthSocialBodySchema
   });
 
@@ -118,12 +139,6 @@ export function createRoutes(ctx) {
     storefrontCheckout,
     storefrontAccount,
     storefrontOrders
-  });
-
-  mountCatalogRoutes(r, {
-    validate,
-    handlers: catalogHandlers,
-    catalogSearchQuerySchema
   });
 
   return r;
