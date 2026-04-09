@@ -12,36 +12,8 @@ import {
 import { oauthExchangeCookieOptions, signOAuthExchangeCookie } from "../../../infra/oauth/oauthExchangeCookie.js";
 import { createOAuthStatePayload, signOAuthState, verifyOAuthState } from "../../../infra/oauth/oauthState.js";
 
-/**
- * @param {import("../../../main/composition.js").AppContext} ctx
- */
-export const oauthController = {
-  ok: () => (_req, res, next) => {
-    try {
-      res.json({ ok: true });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  success: () => (_req, res) => {
-    res.json({
-      ok: true,
-      message:
-        "POST /api/auth/oauth/jwt from this origin with credentials (include cookies) to receive accessToken."
-    });
-  },
-
-  signInSocialGet: () => (_req, res) => {
-    res.status(405).set("Allow", "POST").json({
-      error: {
-        code: "METHOD_NOT_ALLOWED",
-        message: "Use POST with JSON body (provider, optional disableRedirect, callbackURL, additionalData)."
-      }
-    });
-  },
-
-  devGoogleStart: (_ctx) => async (req, res, next) => {
+function devGoogleStartHandler(_ctx) {
+  return async (req, res, next) => {
     try {
       if (!assertGoogleOAuthConfigured()) {
         throw new ServiceUnavailableError(
@@ -61,9 +33,11 @@ export const oauthController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  socialSignIn: (_ctx) => async (req, res, next) => {
+function socialSignInHandler(_ctx) {
+  return async (req, res, next) => {
     try {
       if (!assertGoogleOAuthConfigured()) {
         throw new ServiceUnavailableError(
@@ -87,9 +61,11 @@ export const oauthController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  googleCallback: (ctx) => async (req, res, next) => {
+function googleCallbackHandler(ctx) {
+  return async (req, res, next) => {
     const cookieOpts = oauthExchangeCookieOptions();
     try {
       const oauthErr = req.query.error;
@@ -139,5 +115,46 @@ export const oauthController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const oauthController = {
+  ok: () => (_req, res, next) => {
+    try {
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  success: () => (_req, res) => {
+    res.json({
+      ok: true,
+      message:
+        "POST /api/auth/oauth/jwt from this origin with credentials (include cookies) to receive accessToken."
+    });
+  },
+
+  signInSocialGet: () => (_req, res) => {
+    res.status(405).set("Allow", "POST").json({
+      error: {
+        code: "METHOD_NOT_ALLOWED",
+        message: "Use POST with JSON body (provider, optional disableRedirect, callbackURL, additionalData)."
+      }
+    });
+  },
+
+  devGoogleStart: (_ctx) => devGoogleStartHandler(_ctx),
+
+  socialSignIn: (_ctx) => socialSignInHandler(_ctx),
+
+  googleCallback: (ctx) => googleCallbackHandler(ctx),
+
+  forCtx(ctx) {
+    return {
+      devGoogleStart: devGoogleStartHandler(ctx),
+      socialSignIn: socialSignInHandler(ctx),
+      googleCallback: googleCallbackHandler(ctx)
+    };
   }
 };

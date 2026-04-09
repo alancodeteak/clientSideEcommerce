@@ -9,26 +9,30 @@ import { oauthExchangeCookieOptions, verifyOAuthExchangeCookie } from "../../../
  * It runs register/login/oauth-jwt flows, merges guest cart data
  * after sign-in, and clears auth-related cookies on logout.
  */
-export const authController = {
-  register: (ctx) => async (req, res, next) => {
+function registerHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const result = await withTx((client) => ctx.registerCustomer(client, req.body));
       res.status(201).json(result);
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  login: (ctx) => async (req, res, next) => {
+function loginHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const result = await withClient((client) => ctx.loginCustomer(client, req.body));
       res.json(result);
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  oauthJwt: (ctx) => async (req, res, next) => {
+function oauthJwtHandler(ctx) {
+  return async (req, res, next) => {
     const cookieOpts = oauthExchangeCookieOptions();
     try {
       const rawCookie = req.cookies?.storefront_oauth_exchange;
@@ -70,9 +74,11 @@ export const authController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  logout: () => async (_req, res, next) => {
+function logoutHandler() {
+  return async (_req, res, next) => {
     try {
       const cookieOpts = oauthExchangeCookieOptions();
       res.clearCookie("storefront_oauth_exchange", cookieOpts);
@@ -81,5 +87,21 @@ export const authController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const authController = {
+  register: (ctx) => registerHandler(ctx),
+  login: (ctx) => loginHandler(ctx),
+  oauthJwt: (ctx) => oauthJwtHandler(ctx),
+  logout: () => logoutHandler(),
+
+  forCtx(ctx) {
+    return {
+      register: registerHandler(ctx),
+      login: loginHandler(ctx),
+      oauthJwt: oauthJwtHandler(ctx),
+      logout: logoutHandler()
+    };
   }
 };

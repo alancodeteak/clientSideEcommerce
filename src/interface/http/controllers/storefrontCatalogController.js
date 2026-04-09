@@ -15,8 +15,8 @@ function shopIdForStorefront(req) {
   }
 }
 
-export const storefrontCatalogController = {
-  listCategories: (ctx) => async (req, res, next) => {
+function listCategoriesHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = shopIdForStorefront(req);
       const parentId = req.query.parent_id ?? undefined;
@@ -25,9 +25,11 @@ export const storefrontCatalogController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  listProducts: (ctx) => async (req, res, next) => {
+function listProductsHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = shopIdForStorefront(req);
       const result = await ctx.storefrontCatalog.listProducts(shopId, {
@@ -41,9 +43,11 @@ export const storefrontCatalogController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  getProductBySlug: (ctx) => async (req, res, next) => {
+function getProductBySlugHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = shopIdForStorefront(req);
       const { slug } = req.params;
@@ -55,5 +59,19 @@ export const storefrontCatalogController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const storefrontCatalogController = {
+  listCategories: (ctx) => listCategoriesHandler(ctx),
+  listProducts: (ctx) => listProductsHandler(ctx),
+  getProductBySlug: (ctx) => getProductBySlugHandler(ctx),
+
+  forCtx(ctx) {
+    return {
+      listCategories: listCategoriesHandler(ctx),
+      listProducts: listProductsHandler(ctx),
+      getProductBySlug: getProductBySlugHandler(ctx)
+    };
   }
 };

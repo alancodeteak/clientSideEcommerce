@@ -1,0 +1,24 @@
+# Named tunnel: https://frontend.yaadro.online → local API (npm run dev, PORT 4100).
+#
+# Prerequisites: yaadro.online on Cloudflare; cloudflared installed (e.g. brew install cloudflared).
+#
+# One-time (automated):
+#   1. npm run tunnel:login
+#   2. npm run tunnel:bootstrap
+#
+# Or manual: tunnel login → tunnel create → route dns → copy UUID json to cloudflared/credentials.json → config.yml.
+#
+# Daily: terminal 1 — npm run dev   |   terminal 2 — npm run tunnel
+#
+# If you use a different PORT in .env, change `service:` below to match.
+# For OAuth or absolute API URLs in responses, set in .env:
+#   API_PUBLIC_URL=https://frontend.yaadro.online
+
+tunnel: REPLACE_WITH_TUNNEL_UUID
+# Path is from repo root when using: npm run tunnel
+credentials-file: cloudflared/credentials.json
+
+ingress:
+  - hostname: frontend.yaadro.online
+    service: http://127.0.0.1:4100
+  - service: http_status:404

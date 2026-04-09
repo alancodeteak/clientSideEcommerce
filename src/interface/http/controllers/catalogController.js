@@ -18,8 +18,8 @@ function createListProductsHandler() {
 
 const listProductsHandler = createListProductsHandler();
 
-export const catalogController = {
-  listCategories: (ctx) => async (req, res, next) => {
+function listCategoriesHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const categories = await ctx.listCategories(shopIdFromRequest(req), {
         parentId: req.query.parentId
@@ -28,18 +28,36 @@ export const catalogController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  listProducts: listProductsHandler,
-
-  listItems: listProductsHandler,
-
-  search: (ctx) => async (req, res, next) => {
+function searchHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const result = await ctx.searchCatalog(shopIdFromRequest(req), req.query);
       res.json(result);
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const catalogController = {
+  listCategories: (ctx) => listCategoriesHandler(ctx),
+
+  listProducts: listProductsHandler,
+
+  listItems: listProductsHandler,
+
+  search: (ctx) => searchHandler(ctx),
+
+  forCtx(ctx) {
+    const listProducts = listProductsHandler(ctx);
+    return {
+      listCategories: listCategoriesHandler(ctx),
+      listProducts,
+      listItems: listProducts,
+      search: searchHandler(ctx)
+    };
   }
 };

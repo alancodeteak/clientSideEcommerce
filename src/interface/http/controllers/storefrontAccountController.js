@@ -6,8 +6,9 @@ import { withClient, withTx } from "../../../infra/db/tx.js";
  * It verifies customer access to the shop and manages profile
  * and address read/write operations through service and repo calls.
  */
-export const storefrontAccountController = {
-  postProfile: (ctx) => async (req, res, next) => {
+
+function postProfileHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { userId, customerId } = req.customerAuth;
@@ -24,9 +25,11 @@ export const storefrontAccountController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  getAddress: (ctx) => async (req, res, next) => {
+function getAddressHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { customerId } = req.customerAuth;
@@ -36,9 +39,11 @@ export const storefrontAccountController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  postAddress: (ctx) => async (req, res, next) => {
+function postAddressHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { userId, customerId } = req.customerAuth;
@@ -54,9 +59,11 @@ export const storefrontAccountController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  patchAddress: (ctx) => async (req, res, next) => {
+function patchAddressHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { userId, customerId } = req.customerAuth;
@@ -72,5 +79,21 @@ export const storefrontAccountController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const storefrontAccountController = {
+  postProfile: (ctx) => postProfileHandler(ctx),
+  getAddress: (ctx) => getAddressHandler(ctx),
+  postAddress: (ctx) => postAddressHandler(ctx),
+  patchAddress: (ctx) => patchAddressHandler(ctx),
+
+  forCtx(ctx) {
+    return {
+      postProfile: postProfileHandler(ctx),
+      getAddress: getAddressHandler(ctx),
+      postAddress: postAddressHandler(ctx),
+      patchAddress: patchAddressHandler(ctx)
+    };
   }
 };

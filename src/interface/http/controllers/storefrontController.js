@@ -5,8 +5,8 @@ import { getServiceabilityCookieName, signServiceabilityPayload } from "../../..
 
 const COOKIE_NAME = getServiceabilityCookieName();
 
-export const storefrontController = {
-  checkLocation: (ctx) => async (req, res, next) => {
+function checkLocationHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { lat, lng } = req.body;
@@ -30,5 +30,13 @@ export const storefrontController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const storefrontController = {
+  checkLocation: (ctx) => checkLocationHandler(ctx),
+
+  forCtx(ctx) {
+    return { checkLocation: checkLocationHandler(ctx) };
   }
 };

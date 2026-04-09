@@ -2,6 +2,8 @@
 
 Base URL: your API host (local default `http://localhost:4100`). JSON request/response bodies unless noted.
 
+**Frontend team:** use [API_FRONTEND.md](./API_FRONTEND.md) for full request/response/auth/error contracts and **§13 Complete route inventory** (every registered `Method` + `Path`). This file is a shorter maintainer-oriented overview.
+
 ## Recent updates (April 2026)
 
 - Picker/staff HTTP APIs were removed from this server.

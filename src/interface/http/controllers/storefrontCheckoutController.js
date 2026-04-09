@@ -6,8 +6,8 @@ import { withTx } from "../../../infra/db/tx.js";
  * It validates shop/auth context, runs checkout in a transaction,
  * and returns the created order response.
  */
-export const storefrontCheckoutController = {
-  post: (ctx) => async (req, res, next) => {
+function postHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { userId, customerId } = req.customerAuth;
@@ -29,5 +29,13 @@ export const storefrontCheckoutController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const storefrontCheckoutController = {
+  post: (ctx) => postHandler(ctx),
+
+  forCtx(ctx) {
+    return { post: postHandler(ctx) };
   }
 };

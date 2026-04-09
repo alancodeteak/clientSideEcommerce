@@ -6,8 +6,9 @@ import { withClient } from "../../../infra/db/tx.js";
  * It checks customer shop access and returns order list/detail
  * responses for the authenticated customer.
  */
-export const storefrontOrdersController = {
-  list: (ctx) => async (req, res, next) => {
+
+function listHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { customerId } = req.customerAuth;
@@ -19,9 +20,11 @@ export const storefrontOrdersController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  getById: (ctx) => async (req, res, next) => {
+function getByIdHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const { customerId } = req.customerAuth;
@@ -38,5 +41,17 @@ export const storefrontOrdersController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const storefrontOrdersController = {
+  list: (ctx) => listHandler(ctx),
+  getById: (ctx) => getByIdHandler(ctx),
+
+  forCtx(ctx) {
+    return {
+      list: listHandler(ctx),
+      getById: getByIdHandler(ctx)
+    };
   }
 };

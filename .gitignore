@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 *.log
 coverage/
+
+# Cloudflare tunnel credentials (config.yml may be generated locally; see config.example.yml)
+cloudflared/credentials.json

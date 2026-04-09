@@ -1,7 +1,7 @@
 import { withClient, withTx } from "../../../infra/db/tx.js";
 
-export const profileController = {
-  get: (ctx) => async (req, res, next) => {
+function getHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const { customerId, userId } = req.customerAuth;
       const result = await withClient((client) =>
@@ -11,9 +11,11 @@ export const profileController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  patch: (ctx) => async (req, res, next) => {
+function patchHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const { customerId, userId } = req.customerAuth;
       const result = await withTx((client) =>
@@ -27,5 +29,17 @@ export const profileController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const profileController = {
+  get: (ctx) => getHandler(ctx),
+  patch: (ctx) => patchHandler(ctx),
+
+  forCtx(ctx) {
+    return {
+      get: getHandler(ctx),
+      patch: patchHandler(ctx)
+    };
   }
 };

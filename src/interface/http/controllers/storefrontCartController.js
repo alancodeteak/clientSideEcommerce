@@ -6,8 +6,8 @@ import { withClient } from "../../../infra/db/tx.js";
  * then calls cart services and sends JSON HTTP responses.
  */
 
-export const storefrontCartController = {
-  getOrCreate: (ctx) => async (req, res, next) => {
+function getOrCreateHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const scope = { customerId: req.customerAuth.customerId };
@@ -16,9 +16,11 @@ export const storefrontCartController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  get: (ctx) => async (req, res, next) => {
+function getHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const scope = { customerId: req.customerAuth.customerId };
@@ -27,9 +29,11 @@ export const storefrontCartController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  addItem: (ctx) => async (req, res, next) => {
+function addItemHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const scope = { customerId: req.customerAuth.customerId };
@@ -38,9 +42,11 @@ export const storefrontCartController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  patchItem: (ctx) => async (req, res, next) => {
+function patchItemHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const scope = { customerId: req.customerAuth.customerId };
@@ -51,9 +57,11 @@ export const storefrontCartController = {
     } catch (err) {
       next(err);
     }
-  },
+  };
+}
 
-  deleteItem: (ctx) => async (req, res, next) => {
+function deleteItemHandler(ctx) {
+  return async (req, res, next) => {
     try {
       const shopId = requireShopId(req.shopId);
       const scope = { customerId: req.customerAuth.customerId };
@@ -62,5 +70,23 @@ export const storefrontCartController = {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+export const storefrontCartController = {
+  getOrCreate: (ctx) => getOrCreateHandler(ctx),
+  get: (ctx) => getHandler(ctx),
+  addItem: (ctx) => addItemHandler(ctx),
+  patchItem: (ctx) => patchItemHandler(ctx),
+  deleteItem: (ctx) => deleteItemHandler(ctx),
+
+  forCtx(ctx) {
+    return {
+      getOrCreate: getOrCreateHandler(ctx),
+      get: getHandler(ctx),
+      addItem: addItemHandler(ctx),
+      patchItem: patchItemHandler(ctx),
+      deleteItem: deleteItemHandler(ctx)
+    };
   }
 };
