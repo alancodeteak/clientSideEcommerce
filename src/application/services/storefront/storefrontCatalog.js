@@ -1,6 +1,7 @@
 import { requireShopId } from "../catalog/catalogShopId.js";
 import { toIlikePattern } from "../catalog/catalogSearchPattern.js";
 import { toPublicMediaUrl } from "../../../infra/media/publicMediaUrl.js";
+import { ValidationError } from "../../../domain/errors/ValidationError.js";
 
 /**
  * Purpose: This file contains storefront catalog business logic.
@@ -101,10 +102,18 @@ export function createStorefrontCatalog({ catalogRepo, ensureShopForCatalog, cat
       });
     },
 
-    async listProducts(shopIdRaw, { categoryId, search, limit, cursor, availability }) {
+    async listProducts(
+      shopIdRaw,
+      { categoryId, brandId, search, limit, cursor, availability, minPriceMinor, maxPriceMinor, sortBy, sortOrder }
+    ) {
       const shopId = requireShopId(shopIdRaw);
       await ensureShopForCatalog(shopId);
       const lim = Math.min(Math.max(Number(limit) || 24, 1), 100);
+      const resolvedSortBy = sortBy || "created_at";
+      const resolvedSortOrder = sortOrder || "desc";
+      if (cursor && resolvedSortBy !== "created_at") {
+        throw new ValidationError("cursor pagination is only supported with sort_by=created_at");
+      }
       let cursorCreatedAt = null;
       let cursorId = null;
       if (cursor) {
@@ -118,15 +127,20 @@ export function createStorefrontCatalog({ catalogRepo, ensureShopForCatalog, cat
         }
       }
       const qPattern = toIlikePattern(search ?? null);
-      const key = `shop:${shopId}:products:v1:${categoryId ?? "all"}:${qPattern ?? "q"}:${availability ?? "any"}:${lim}:cur:${cursor ?? "none"}`;
+      const key = `shop:${shopId}:products:v2:${categoryId ?? "all"}:${brandId ?? "all"}:${qPattern ?? "q"}:${availability ?? "any"}:${minPriceMinor ?? "min"}:${maxPriceMinor ?? "max"}:${resolvedSortBy}:${resolvedSortOrder}:${lim}:cur:${cursor ?? "none"}`;
       const items = await catalogCache.wrap(key, CACHE_TTL_SEC, async () => {
         const rows = await catalogRepo.listProductsStorefront(shopId, {
           categoryId: categoryId ?? null,
+          brandId: brandId ?? null,
           qPattern,
           limit: lim + 1,
           cursorCreatedAt,
           cursorId,
-          availability: availability ?? null
+          availability: availability ?? null,
+          minPriceMinor: Number.isInteger(minPriceMinor) ? minPriceMinor : null,
+          maxPriceMinor: Number.isInteger(maxPriceMinor) ? maxPriceMinor : null,
+          sortBy: resolvedSortBy,
+          sortOrder: resolvedSortOrder
         });
         return rows;
       });

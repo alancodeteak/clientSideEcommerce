@@ -2,6 +2,7 @@ import { CatalogRepo } from "../../../application/ports/repositories/CatalogRepo
 import { pool } from "../../../infra/db/pool.js";
 import { setTenantContext } from "../../../infra/db/tenantContext.js";
 import { toPublicMediaUrl } from "../../../infra/media/publicMediaUrl.js";
+import { storefrontProductsOrderByClause } from "../../../application/services/catalog/catalogSearchOrder.js";
 
 /**
  * Purpose: This file is the PostgreSQL implementation of catalog data access.
@@ -331,20 +332,29 @@ export class CatalogRepoPg extends CatalogRepo {
   async listProductsStorefront(shopId, params) {
     const {
       categoryId,
+      brandId,
       qPattern,
       limit,
       cursorCreatedAt,
       cursorId,
-      availability
+      availability,
+      minPriceMinor,
+      maxPriceMinor,
+      sortBy,
+      sortOrder
     } = params;
     const client = await pool.connect();
     try {
       await setTenantContext(client, shopId);
-      const args = [shopId, categoryId, qPattern, availability, limit];
+      const orderBySql = storefrontProductsOrderByClause(sortBy, sortOrder);
+      const args = [shopId, categoryId, brandId, qPattern, availability, minPriceMinor, maxPriceMinor, limit];
       let cursorClause = "";
       if (cursorCreatedAt && cursorId) {
         args.push(cursorCreatedAt, cursorId);
-        cursorClause = `AND (p.created_at, p.id) < ($${args.length - 1}::timestamptz, $${args.length}::uuid)`;
+        cursorClause =
+          sortOrder === "asc"
+            ? `AND (p.created_at, p.id) > ($${args.length - 1}::timestamptz, $${args.length}::uuid)`
+            : `AND (p.created_at, p.id) < ($${args.length - 1}::timestamptz, $${args.length}::uuid)`;
       }
       const { rows } = await client.query(
         `SELECT p.id, p.category_id, p.name, p.slug, p.base_unit, p.status, p.availability,
@@ -407,11 +417,14 @@ export class CatalogRepoPg extends CatalogRepo {
           WHERE p.shop_id = $1::uuid
             AND p.status = 'active'
             AND ($2::uuid IS NULL OR p.category_id = $2)
-            AND ($3::text IS NULL OR p.name ILIKE $3 ESCAPE '\\' OR p.slug ILIKE $3 ESCAPE '\\')
-            AND ($4::text IS NULL OR p.availability = $4)
+            AND ($3::uuid IS NULL OR p.brand_id = $3)
+            AND ($4::text IS NULL OR p.name ILIKE $4 ESCAPE '\\' OR p.slug ILIKE $4 ESCAPE '\\')
+            AND ($5::text IS NULL OR p.availability = $5)
+            AND ($6::bigint IS NULL OR p.offer_price_minor_per_unit >= $6)
+            AND ($7::bigint IS NULL OR p.offer_price_minor_per_unit <= $7)
             ${cursorClause}
-          ORDER BY p.created_at DESC, p.id DESC
-          LIMIT $5`,
+          ORDER BY ${orderBySql}
+          LIMIT $8`,
         args
       );
       return rows;

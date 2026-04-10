@@ -34,10 +34,15 @@ function listProductsHandler(ctx) {
       const shopId = shopIdForStorefront(req);
       const result = await ctx.storefrontCatalog.listProducts(shopId, {
         categoryId: req.query.category_id,
+        brandId: req.query.brand_id,
         search: req.query.search,
         limit: req.query.limit,
         cursor: req.query.cursor,
-        availability: req.query.availability
+        availability: req.query.availability,
+        minPriceMinor: req.query.min_price_minor,
+        maxPriceMinor: req.query.max_price_minor,
+        sortBy: req.query.sort_by,
+        sortOrder: req.query.sort_order
       });
       res.json(result);
     } catch (err) {

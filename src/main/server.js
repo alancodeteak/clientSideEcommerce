@@ -18,7 +18,7 @@ export function createExpressApp(ctx) {
   const isNoisePath = (url) => url === "/health" || url === "/";
 
   const app = express();
-  app.set("trust proxy", env.TRUST_PROXY);
+  app.set("trust proxy", env.TRUST_PROXY ? env.TRUST_PROXY_HOPS : false);
 
   app.disable("x-powered-by");
   app.use(

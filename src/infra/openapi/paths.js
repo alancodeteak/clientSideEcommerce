@@ -1,3 +1,4 @@
+// Purpose: Defines OpenAPI path operations, request params, and responses for all public API endpoints.
 import { parameters as P } from "./components.js";
 
 const jsonErr = {
@@ -269,13 +270,23 @@ export function buildPaths() {
         tags: ["Storefront catalog"],
         summary: "List products (cursor page)",
         description:
-          "Returns products with product thumbnail image and embedded category object (`parent_id`, `name`, `slug`, `image`).",
+          "Returns products with product thumbnail image and embedded category object (`parent_id`, `name`, `slug`, `image`). Supports filtering and sorting.",
         parameters: [
           ...shopParams,
           { name: "category_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "brand_id", in: "query", schema: { type: "string", format: "uuid" } },
           { name: "search", in: "query", schema: { type: "string" } },
+          { name: "min_price_minor", in: "query", schema: { type: "integer", minimum: 0 } },
+          { name: "max_price_minor", in: "query", schema: { type: "integer", minimum: 0 } },
+          { name: "sort_by", in: "query", schema: { type: "string", enum: ["price", "created_at", "name"] } },
+          { name: "sort_order", in: "query", schema: { type: "string", enum: ["asc", "desc"] } },
           { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
-          { name: "cursor", in: "query", schema: { type: "string" } },
+          {
+            name: "cursor",
+            in: "query",
+            description: "Supported only with sort_by=created_at.",
+            schema: { type: "string" }
+          },
           {
             name: "availability",
             in: "query",

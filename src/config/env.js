@@ -43,6 +43,7 @@ function rawEnv() {
           ENABLE_API_DOCS: "true",
           ALLOW_API_DOCS_IN_PRODUCTION: "false",
           TRUST_PROXY: "false",
+          TRUST_PROXY_HOPS: "1",
           JWT_ACCESS_EXPIRES_IN: "15m",
           JWT_REFRESH_EXPIRES_IN: "30d",
           JWT_KEY_ID: "dev-v1",
@@ -155,6 +156,7 @@ const envSchema = z
       const s = String(val).toLowerCase();
       return s === "true" || s === "1" || s === "yes";
     }, z.boolean()),
+    TRUST_PROXY_HOPS: z.coerce.number().int().positive().default(1),
 
     SERVICE_AREA_RADIUS_METERS: z.coerce.number().int().positive(),
 
@@ -216,6 +218,14 @@ const envSchema = z
         path: ["ENABLE_API_DOCS"],
         message:
           "ENABLE_API_DOCS is blocked in production unless ALLOW_API_DOCS_IN_PRODUCTION=true"
+      });
+    }
+    if (val.NODE_ENV === "production" && !val.TRUST_PROXY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["TRUST_PROXY"],
+        message:
+          "TRUST_PROXY must be true in production behind a reverse proxy so req.ip and rate limiting are reliable"
       });
     }
   });

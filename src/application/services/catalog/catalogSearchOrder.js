@@ -25,3 +25,16 @@ export function categoriesOrderByClause(sort, order) {
       return `sort_order ${dir}, name ASC`;
   }
 }
+
+export function storefrontProductsOrderByClause(sortBy, sortOrder) {
+  const dir = sortOrder === "asc" ? "ASC" : "DESC";
+  switch (sortBy) {
+    case "price":
+      return `p.offer_price_minor_per_unit ${dir}, p.name ASC, p.id ASC`;
+    case "name":
+      return `p.name ${dir}, p.id ASC`;
+    case "created_at":
+    default:
+      return `p.created_at ${dir}, p.id ${dir}`;
+  }
+}
