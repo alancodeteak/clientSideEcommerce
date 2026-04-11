@@ -13,15 +13,18 @@ import { notFound } from "../interface/http/middleware/notFound.js";
 import { errorHandler } from "../interface/http/middleware/errorHandler.js";
 import { createAppContext } from "./composition.js";
 import { getOpenApiDocument } from "../infra/openapi/openapiDocument.js";
+import { requestMetricsMiddleware } from "../infra/metrics/requestMetrics.js";
 
 export function createExpressApp(ctx) {
-  const isNoisePath = (url) => url === "/health" || url === "/";
+  const isNoisePath = (url) =>
+    url === "/health" || url === "/health/ready" || url === "/metrics" || url === "/";
 
   const app = express();
   app.set("trust proxy", env.TRUST_PROXY ? env.TRUST_PROXY_HOPS : false);
 
   app.disable("x-powered-by");
   app.use(helmet());
+  app.use(requestMetricsMiddleware);
   app.use(
     pinoHttp({
       logger,
@@ -119,7 +122,14 @@ export function createExpressApp(ctx) {
     cors({
       origin: env.CORS_ORIGIN,
       credentials: true,
-      allowedHeaders: ["content-type", "authorization", "x-shop-id", "x-request-id"]
+      allowedHeaders: [
+        "content-type",
+        "authorization",
+        "x-shop-id",
+        "x-request-id",
+        "x-metrics-token",
+        "idempotency-key"
+      ]
     })
   );
 

@@ -78,6 +78,22 @@ export function createRoutes(ctx) {
     message: "Too many cart updates. Try again later."
   });
 
+  const profileMutateLimiter = createLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxTest: 10_000,
+    maxProd: 30,
+    message: "Too many profile updates. Try again later.",
+    keyGenerator: (req) => String(req.customerAuth?.userId || req.ip)
+  });
+
+  const addressMutateLimiter = createLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxTest: 10_000,
+    maxProd: 25,
+    message: "Too many address updates. Try again later.",
+    keyGenerator: (req) => String(req.customerAuth?.userId || req.ip)
+  });
+
   const authHandlers = authController.forCtx(ctx);
   const oauthHandlers = oauthController.forCtx(ctx);
   const profileHandlers = profileController.forCtx(ctx);
@@ -89,7 +105,10 @@ export function createRoutes(ctx) {
   const storefrontAccount = storefrontAccountController.forCtx(ctx);
   const storefrontOrders = storefrontOrdersController.forCtx(ctx);
 
-  mountCoreRoutes(r, { healthGet: healthHandlers.get });
+  mountCoreRoutes(r, {
+    healthGet: healthHandlers.get,
+    healthReadyGet: healthHandlers.ready
+  });
 
   mountAuthRoutes(r, {
     authLimiter,
@@ -111,6 +130,7 @@ export function createRoutes(ctx) {
 
   mountProfileRoutes(r, {
     requireCustomerJwt: ctx.requireCustomerJwt,
+    profileMutateLimiter,
     validate,
     handlers: profileHandlers,
     patchProfileBodySchema
@@ -119,6 +139,8 @@ export function createRoutes(ctx) {
   mountStorefrontRoutes(r, {
     authLimiter,
     cartMutateLimiter,
+    profileMutateLimiter,
+    addressMutateLimiter,
     requireCustomerJwt: ctx.requireCustomerJwt,
     locationGuard: ctx.locationGuard,
     validate,

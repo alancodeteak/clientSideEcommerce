@@ -14,6 +14,8 @@ import { createListCategories } from "../application/services/catalog/listCatego
 import { createListProducts } from "../application/services/catalog/listProducts.js";
 import { createSearchCatalog } from "../application/services/catalog/searchCatalog.js";
 import { createGetHealth } from "../application/services/health/getHealth.js";
+import { createGetReadiness } from "../application/services/health/getReadiness.js";
+import { pool } from "../infra/db/pool.js";
 import { buildStorefrontSessionResponse } from "../application/services/auth/buildStorefrontSessionResponse.js";
 import { provisionCustomerForOAuthShop } from "../application/services/auth/provisionCustomerForOAuthShop.js";
 import { createAssertCustomerShopAccess } from "../application/services/auth/assertCustomerShopAccess.js";
@@ -108,6 +110,11 @@ export function createAppContext() {
     cartRepo,
     orderRepo,
     getHealth: createGetHealth(),
+    getReadiness: createGetReadiness({
+      pool,
+      getRedis: getSharedRedisClient,
+      skipDepProbes: env.NODE_ENV === "test"
+    }),
     listCatalogItems: createListCatalogItems({ catalogRepo, ensureShopForCatalog }),
     listCategories: createListCategories({ catalogRepo, ensureShopForCatalog }),
     listProducts: createListProducts({ catalogRepo, ensureShopForCatalog }),

@@ -50,7 +50,8 @@ function rawEnv() {
           JWT_ALLOWED_ALGORITHMS: "HS256",
           STOREFRONT_CATALOG_CACHE_TTL_SEC: "60",
           STOREFRONT_CATALOG_HTTP_CACHE_SEC: "0",
-          CATALOG_CACHE_INVALIDATE_TOKEN: ""
+          CATALOG_CACHE_INVALIDATE_TOKEN: "",
+          METRICS_SCRAPE_TOKEN: ""
         }
       : null;
 
@@ -206,7 +207,10 @@ const envSchema = z
     STOREFRONT_CATALOG_HTTP_CACHE_SEC: z.coerce.number().int().min(0).max(86_400).default(0),
 
     /** If non-empty, POST /storefront/catalog/cache/invalidate is enabled (requires matching header). */
-    CATALOG_CACHE_INVALIDATE_TOKEN: z.string().optional().default("")
+    CATALOG_CACHE_INVALIDATE_TOKEN: z.string().optional().default(""),
+
+    /** If non-empty, GET /metrics requires Authorization: Bearer <token> or X-Metrics-Token. */
+    METRICS_SCRAPE_TOKEN: z.string().optional().default("")
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === "production" && !val.DATABASE_URL?.trim()) {
@@ -282,5 +286,6 @@ export const env = {
   STOREFRONT_ENFORCE_SERVICEABILITY: parsed.data.STOREFRONT_ENFORCE_SERVICEABILITY ?? false,
   STOREFRONT_CATALOG_CACHE_TTL_SEC: parsed.data.STOREFRONT_CATALOG_CACHE_TTL_SEC ?? 60,
   STOREFRONT_CATALOG_HTTP_CACHE_SEC: parsed.data.STOREFRONT_CATALOG_HTTP_CACHE_SEC ?? 0,
-  CATALOG_CACHE_INVALIDATE_TOKEN: parsed.data.CATALOG_CACHE_INVALIDATE_TOKEN?.trim() || ""
+  CATALOG_CACHE_INVALIDATE_TOKEN: parsed.data.CATALOG_CACHE_INVALIDATE_TOKEN?.trim() || "",
+  METRICS_SCRAPE_TOKEN: parsed.data.METRICS_SCRAPE_TOKEN?.trim() || ""
 };

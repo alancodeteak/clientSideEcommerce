@@ -16,6 +16,8 @@ export function mountStorefrontRoutes(r, deps) {
   const {
     authLimiter,
     cartMutateLimiter,
+    profileMutateLimiter,
+    addressMutateLimiter,
     requireCustomerJwt,
     locationGuard,
     validate,
@@ -99,6 +101,7 @@ export function mountStorefrontRoutes(r, deps) {
   r.post(
     "/storefront/profile",
     requireCustomerJwt,
+    profileMutateLimiter,
     validate({ body: storefrontProfilePostSchema }),
     storefrontAccount.postProfile
   );
@@ -106,12 +109,14 @@ export function mountStorefrontRoutes(r, deps) {
   r.post(
     "/storefront/address",
     requireCustomerJwt,
+    addressMutateLimiter,
     validate({ body: storefrontAddressPostSchema }),
     storefrontAccount.postAddress
   );
   r.patch(
     "/storefront/address",
     requireCustomerJwt,
+    addressMutateLimiter,
     validate({ body: storefrontAddressPatchSchema }),
     storefrontAccount.patchAddress
   );

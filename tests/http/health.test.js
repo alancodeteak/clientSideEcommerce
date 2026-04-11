@@ -33,3 +33,32 @@ describe("GET /health", () => {
     });
   });
 });
+
+describe("GET /health/ready", () => {
+  let app;
+
+  beforeAll(() => {
+    app = getTestApp();
+  });
+
+  it("returns 200 when database (and optional Redis) are up", async () => {
+    const res = await request(app).get("/health/ready").expect(200);
+    expect(res.body.status).toBe("ready");
+    expect(res.body.checks?.database).toBe("ok");
+  });
+});
+
+describe("GET /metrics", () => {
+  let app;
+
+  beforeAll(() => {
+    app = getTestApp();
+  });
+
+  it("returns JSON counters", async () => {
+    await request(app).get("/health");
+    const res = await request(app).get("/metrics").expect(200);
+    expect(typeof res.body.requests_total).toBe("number");
+    expect(res.body.by_method_route_status).toBeDefined();
+  });
+});

@@ -25,6 +25,8 @@ export function buildPaths() {
                     ok: { type: "boolean" },
                     service: { type: "string" },
                     health: { type: "string" },
+                    healthReady: { type: "string" },
+                    metrics: { type: "string" },
                     openapi: { type: "string" },
                     swaggerUi: { type: "string" }
                   }
@@ -56,6 +58,76 @@ export function buildPaths() {
             }
           },
           "500": jsonErr
+        }
+      }
+    },
+    "/health/ready": {
+      get: {
+        tags: ["Root"],
+        summary: "Readiness probe",
+        description: "Checks database and Redis (when `REDIS_URL` is set). Returns 503 if a dependency is down.",
+        responses: {
+          "200": {
+            description: "Ready",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "string", example: "ready" },
+                    service: { type: "string" },
+                    checks: {
+                      type: "object",
+                      properties: {
+                        database: { type: "string", enum: ["ok", "fail", "unknown"] },
+                        redis: { type: "string", enum: ["ok", "fail", "skipped"] }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": jsonErr
+        }
+      }
+    },
+    "/metrics": {
+      get: {
+        tags: ["Root"],
+        summary: "HTTP request counters",
+        description:
+          "In-process JSON metrics. When `METRICS_SCRAPE_TOKEN` is set, send it as `Authorization: Bearer <token>` or `X-Metrics-Token`.",
+        parameters: [
+          {
+            name: "Authorization",
+            in: "header",
+            required: false,
+            schema: { type: "string" }
+          },
+          {
+            name: "X-Metrics-Token",
+            in: "header",
+            required: false,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    requests_total: { type: "integer" },
+                    by_method_route_status: { type: "object", additionalProperties: { type: "integer" } }
+                  }
+                }
+              }
+            }
+          },
+          "403": jsonErr
         }
       }
     },
