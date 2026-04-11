@@ -2,6 +2,7 @@ import http from "node:http";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import { pool } from "../infra/db/pool.js";
+import { attachSocketServer } from "../infra/realtime/socketServer.js";
 import { createAppContext } from "./composition.js";
 import { createExpressApp } from "./server.js";
 
@@ -16,6 +17,8 @@ async function main() {
   const ctx = createAppContext();
   const app = createExpressApp(ctx);
   const server = http.createServer(app);
+  const realtime = attachSocketServer(server, { corsOrigin: env.CORS_ORIGIN });
+  ctx.emitOrderPlaced = (payload) => realtime.emitOrderPlaced(payload);
 
   await new Promise((resolve, reject) => {
     server.listen(env.PORT, () => {

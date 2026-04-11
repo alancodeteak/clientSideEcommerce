@@ -18,7 +18,10 @@ const addressPatchSchema = z
 /** `PATCH /api/me/profile` — only include fields to change (partial nested address). */
 export const patchProfileBodySchema = z
   .object({
+    name: z.string().max(120).nullable().optional(),
     displayName: z.string().max(120).nullable().optional(),
+    email: z.string().email().nullable().optional(),
+    phone: z.string().max(32).nullable().optional(),
     address: addressPatchSchema.optional()
   })
   .strict()
@@ -28,6 +31,19 @@ export const patchProfileBodySchema = z
         code: z.ZodIssueCode.custom,
         message: "address must include at least one field when provided",
         path: ["address"]
+      });
+    }
+    if (
+      val.name === undefined &&
+      val.displayName === undefined &&
+      val.email === undefined &&
+      val.phone === undefined &&
+      val.address === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide at least one field to update",
+        path: []
       });
     }
   });

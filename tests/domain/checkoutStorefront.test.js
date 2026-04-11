@@ -36,7 +36,8 @@ function deps() {
       deleteCart: vi.fn().mockResolvedValue(undefined)
     },
     orderRepo: {
-      insertOrderWithItemsAndOutbox: vi.fn().mockResolvedValue({ id: "order-1" })
+      insertOrderWithItemsAndOutbox: vi.fn().mockResolvedValue({ id: "order-1" }),
+      insertOutboxEvent: vi.fn().mockResolvedValue(undefined)
     },
     authRepo: {
       getMembershipByCustomerAndShop: vi.fn().mockResolvedValue({
@@ -150,6 +151,14 @@ describe("checkoutStorefront validations", () => {
     });
 
     expect(d.orderRepo.insertOrderWithItemsAndOutbox).toHaveBeenCalledTimes(1);
+    expect(d.orderRepo.insertOrderWithItemsAndOutbox).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        customerName: "John",
+        customerPhone: "+919999999999",
+        customerAddress: "x"
+      })
+    );
     expect(d.cartRepo.deleteCartItemsForCart).toHaveBeenCalledWith(
       {},
       "00000000-0000-4000-8000-000000000001",
@@ -164,5 +173,56 @@ describe("checkoutStorefront validations", () => {
       orderId: "order-1",
       total_minor: 120
     });
+  });
+
+  it("emits standardized order.placed payload after successful checkout", async () => {
+    const d = deps();
+    const emitOrderPlaced = vi.fn();
+    const run = createCheckoutStorefront({ ...d, emitOrderPlaced });
+    await run(
+      {},
+      {
+        shopId: "00000000-0000-4000-8000-000000000001",
+        customerId: "cust-1",
+        userId: "user-1",
+        addressId: "22222222-2222-4222-8222-222222222222"
+      }
+    );
+    expect(emitOrderPlaced).toHaveBeenCalledTimes(1);
+    expect(emitOrderPlaced).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: "order-1",
+        shopId: "00000000-0000-4000-8000-000000000001",
+        customerId: "cust-1",
+        totalMinor: 120
+      })
+    );
+  });
+
+  it("does not fail checkout when realtime emit fails and writes retry outbox event", async () => {
+    const d = deps();
+    const emitOrderPlaced = vi.fn(() => {
+      throw new Error("socket down");
+    });
+    const run = createCheckoutStorefront({ ...d, emitOrderPlaced });
+    const out = await run(
+      {},
+      {
+        shopId: "00000000-0000-4000-8000-000000000001",
+        customerId: "cust-1",
+        userId: "user-1",
+        addressId: "22222222-2222-4222-8222-222222222222"
+      }
+    );
+    expect(out.orderId).toBe("order-1");
+    expect(d.orderRepo.insertOutboxEvent).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        shopId: "00000000-0000-4000-8000-000000000001",
+        aggregateType: "order",
+        aggregateId: "order-1",
+        eventType: "order.placed.realtime.retry"
+      })
+    );
   });
 });

@@ -69,6 +69,12 @@ function rawEnv() {
     src.JWT_REFRESH_SECRET ??= "dev_refresh_only_change_me";
   }
 
+  // Backward-compatible JWT TTL behavior:
+  // if JWT_ACCESS_EXPIRES_IN is not set, inherit from JWT_EXPIRES_IN.
+  if (src.JWT_ACCESS_EXPIRES_IN === undefined || src.JWT_ACCESS_EXPIRES_IN === "") {
+    src.JWT_ACCESS_EXPIRES_IN = src.JWT_EXPIRES_IN || "15m";
+  }
+
   return src;
 }
 

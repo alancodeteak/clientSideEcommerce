@@ -23,13 +23,21 @@ function checkoutError(code, message) {
   return new AppError(message, { statusCode: 400, code });
 }
 
+function customerAddressSnapshot(addr) {
+  if (!addr) return null;
+  const parts = [addr.line1, addr.line2, addr.landmark, addr.city, addr.state, addr.postalCode, addr.country]
+    .map((x) => (x != null && String(x).trim() !== "" ? String(x).trim() : null))
+    .filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+}
+
 export function createCheckoutStorefront({
   cartRepo,
   orderRepo,
   authRepo,
   checkShopServiceArea,
   deliveryFeeMinor,
-  emitOrderNew = null
+  emitOrderPlaced = null
 }) {
   return async function checkoutStorefront(client, input) {
     const { shopId: shopRaw, customerId, userId, addressId, notes, requestMeta } = input;
@@ -157,6 +165,9 @@ export function createCheckoutStorefront({
       const order = await orderRepo.insertOrderWithItemsAndOutbox(client, {
         shopId,
         customerIdText: custKey,
+        customerName: customerName || null,
+        customerPhone: profile.phone ?? null,
+        customerAddress: customerAddressSnapshot(profile.address),
         orderNumber,
         status: "pending",
         paymentMethod: "cod",
@@ -172,18 +183,36 @@ export function createCheckoutStorefront({
       await cartRepo.deleteCartItemsForCart(client, shopId, cart.id);
       await cartRepo.deleteCart(client, shopId, cart.id);
 
-      if (typeof emitOrderNew === "function") {
-        emitOrderNew({
+      if (typeof emitOrderPlaced === "function") {
+        const emitPayload = {
+          orderId: order.id,
           shopId,
-          order_id: order.id,
-          order_number: orderNumber,
-          items: orderItems.map((x) => ({
-            name: x.name,
-            quantity: x.quantity,
-            unit_label: x.unitLabel
-          })),
-          customer_name: customerName
-        });
+          customerId,
+          orderNumber,
+          totalMinor: total
+        };
+        try {
+          emitOrderPlaced(emitPayload);
+        } catch (emitErr) {
+          logger.warn(
+            {
+              event: "api.checkout.realtime_emit_failed",
+              requestId: requestMeta?.requestId,
+              shopId,
+              customerId,
+              orderId: order.id,
+              err: emitErr?.message
+            },
+            "Realtime order emit failed; writing retry outbox event"
+          );
+          await orderRepo.insertOutboxEvent(client, {
+            shopId,
+            aggregateType: "order",
+            aggregateId: order.id,
+            eventType: "order.placed.realtime.retry",
+            payload: emitPayload
+          });
+        }
       }
 
       logger.info(

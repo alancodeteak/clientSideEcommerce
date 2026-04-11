@@ -1,7 +1,7 @@
--- Sole PostgreSQL migration for fresh deployment of the multi-tenant ecommerce schema.
--- Apply this entire file once per new database (e.g. psql -f 001_deployment_postgresql.sql).
--- Layout targets fresh installs (inline FKs, CHECKs, timestamps on CREATE TABLE); idempotent
--- ALTER … IF NOT EXISTS / DROP IF EXISTS blocks also help bring older databases closer to current shape.
+-- Sole PostgreSQL schema file for this service (fresh deploys + idempotent upgrades).
+-- Apply with `npm run db:migrate` or `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_full_schema.sql`.
+-- Layout: inline FKs/CHECKs on CREATE TABLE where possible; ADD COLUMN IF NOT EXISTS / DO blocks
+-- for databases created from older revisions.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -487,6 +487,65 @@ CREATE INDEX IF NOT EXISTS idx_customer_shop_memberships_shop_flags
 CREATE INDEX IF NOT EXISTS idx_customers_created_at_desc
   ON customers (created_at DESC);
 
+-- Purpose: Stores customer OTP login challenges (hashed code, TTL, attempts, single-use).
+
+CREATE TABLE IF NOT EXISTS customer_otp_challenges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone TEXT NOT NULL,
+  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  consumed_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customer_otp_challenges_phone_format_chk') THEN
+    ALTER TABLE customer_otp_challenges
+      ADD CONSTRAINT customer_otp_challenges_phone_format_chk
+      CHECK (phone ~ '^[0-9+][0-9]{7,31}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customer_otp_challenges_attempts_chk') THEN
+    ALTER TABLE customer_otp_challenges
+      ADD CONSTRAINT customer_otp_challenges_attempts_chk
+      CHECK (attempts >= 0 AND attempts <= 20);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_customer_otp_challenges_lookup
+  ON customer_otp_challenges (phone, shop_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_customer_otp_challenges_active
+  ON customer_otp_challenges (phone, shop_id, expires_at DESC)
+  WHERE consumed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS customer_refresh_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  jwt_id TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  replaced_by_token_hash TEXT,
+  issued_ip TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_refresh_tokens_user_id
+  ON customer_refresh_tokens(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_customer_refresh_tokens_customer_id
+  ON customer_refresh_tokens(customer_id);
+
+CREATE INDEX IF NOT EXISTS idx_customer_refresh_tokens_expires_at
+  ON customer_refresh_tokens(expires_at);
+
 CREATE TABLE IF NOT EXISTS carts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -513,6 +572,9 @@ CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL,
+  customer_name TEXT,
+  customer_phone TEXT,
+  customer_address TEXT,
   order_number TEXT NOT NULL,
   status TEXT NOT NULL CONSTRAINT orders_status_chk
     CHECK (status IN ('pending', 'accepted', 'picking', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'rejected')),
@@ -534,14 +596,28 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE INDEX IF NOT EXISTS idx_orders_shop_status_placed ON orders(shop_id, status, placed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_shop_customer_placed ON orders (shop_id, customer_id, placed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_shop_placed ON orders(shop_id, placed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_shop_order_number_ci ON orders(shop_id, lower(order_number));
+CREATE INDEX IF NOT EXISTS idx_orders_shop_picker_name_ci ON orders(shop_id, lower(picker_name))
+  WHERE picker_name IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_shop_customer_name_ci ON orders (shop_id, lower(customer_name))
+  WHERE customer_name IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_shop_customer_phone ON orders (shop_id, customer_phone)
+  WHERE customer_phone IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_shop_picker_status_placed
+  ON orders (shop_id, picker_id, status, placed_at DESC)
+  WHERE picker_id IS NOT NULL;
 
--- Upgrade: order lifecycle timestamps (optional, nullable).
+-- Forward-compat for databases created before these columns existed on orders.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS out_for_delivery_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS picker_id UUID;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS picker_name TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_picker_id_fkey') THEN
@@ -555,7 +631,6 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_status_chk') THEN
-    -- Fail fast if there is any existing invalid data so we don't silently clamp history.
     IF EXISTS (
       SELECT 1 FROM orders o
       WHERE o.status NOT IN ('pending', 'accepted', 'picking', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'rejected')

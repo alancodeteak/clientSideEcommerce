@@ -82,7 +82,7 @@ export function createAppContext() {
   });
 
   const realtime = {
-    emitPickerOrderNew: () => {}
+    emitOrderPlaced: () => {}
   };
 
   const checkoutStorefront = createCheckoutStorefront({
@@ -91,7 +91,7 @@ export function createAppContext() {
     authRepo,
     checkShopServiceArea,
     deliveryFeeMinor: env.STOREFRONT_DELIVERY_FEE_MINOR,
-    emitOrderNew: (payload) => realtime.emitPickerOrderNew(payload)
+    emitOrderPlaced: (payload) => realtime.emitOrderPlaced(payload)
   });
 
   return {
@@ -120,11 +120,11 @@ export function createAppContext() {
     assertCustomerShopAccess,
     updateStorefrontProfile,
     checkoutStorefront,
-    get emitPickerOrderNew() {
-      return realtime.emitPickerOrderNew;
+    get emitOrderPlaced() {
+      return realtime.emitOrderPlaced;
     },
-    set emitPickerOrderNew(fn) {
-      realtime.emitPickerOrderNew = fn;
+    set emitOrderPlaced(fn) {
+      realtime.emitOrderPlaced = fn;
     }
   };
 }

@@ -1,4 +1,5 @@
 import { AuthError } from "../../../domain/errors/AuthError.js";
+import { ConflictError } from "../../../domain/errors/ConflictError.js";
 import { NotFoundError } from "../../../domain/errors/NotFoundError.js";
 import { getCustomerProfile } from "./getCustomerProfile.js";
 
@@ -22,16 +23,39 @@ export function updateCustomerProfile({ authRepo }) {
         ? patch.address
         : undefined;
 
-    const hasDisplay = patch.displayName !== undefined;
+    const displayName = patch.displayName !== undefined ? patch.displayName : patch.name;
+    const hasDisplay = displayName !== undefined;
     const hasAddress = addressPatch !== undefined;
+    const hasPhone = patch.phone !== undefined;
+    const hasEmail = patch.email !== undefined;
 
     if (hasDisplay || hasAddress) {
       await authRepo.patchCustomerProfile(client, {
         customerId,
         userId,
-        displayName: patch.displayName,
+        displayName,
         addressPatch
       });
+    }
+    if (hasPhone) {
+      try {
+        await authRepo.updateUserPhone(client, userId, patch.phone ?? null);
+      } catch (err) {
+        if (err?.code === "23505" && err?.constraint === "users_phone_key") {
+          throw new ConflictError("Phone number is already in use");
+        }
+        throw err;
+      }
+    }
+    if (hasEmail) {
+      try {
+        await authRepo.updateUserEmail(client, userId, patch.email ?? null);
+      } catch (err) {
+        if (err?.code === "23505" && err?.constraint === "users_email_key") {
+          throw new ConflictError("Email is already in use");
+        }
+        throw err;
+      }
     }
 
     return getProfile(client, { customerId, userId });

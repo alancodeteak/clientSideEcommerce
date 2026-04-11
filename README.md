@@ -4,7 +4,7 @@ Express API with **domain → application → adapters → interface** layering.
 
 **API reference:** [docs/API.md](docs/API.md)
 
-The database schema matches `migrations/001_deployment_postgresql.sql`. Apply it with `npm run db:migrate` (or `psql -f`). To drop tables not in that file (after a backup), use **`npm run db:prune`**. Tenant-scoped reads use Postgres **RLS** via `set_config('app.current_shop_id', …)` before querying.
+The database schema is **`migrations/001_full_schema.sql`** only (`npm run db:migrate` applies that file explicitly). To drop legacy tables not in that schema (after a backup), extend **`scripts/prune-noncanonical-tables.sql`** and run **`npm run db:prune`**. Tenant-scoped reads use Postgres **RLS** via `set_config('app.current_shop_id', …)` before querying.
 
 ## Layout
 

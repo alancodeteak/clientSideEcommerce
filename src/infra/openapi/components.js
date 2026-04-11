@@ -85,15 +85,39 @@ export const schemas = {
       user: { type: "object" },
       customer: { type: "object" },
       shopIds: { type: "array", items: { type: "string", format: "uuid" } },
-      profile: { type: "array", items: { type: "object" } },
       shop: { type: "object" }
+    }
+  },
+  ProfileResponse: {
+    type: "object",
+    properties: {
+      user: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          name: { type: "string", nullable: true },
+          email: { type: "string", format: "email", nullable: true },
+          phone: { type: "string", nullable: true }
+        }
+      },
+      customer: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          displayName: { type: "string", nullable: true }
+        }
+      },
+      address: { oneOf: [{ $ref: "#/components/schemas/StorefrontAddress" }, { type: "null" }] }
     }
   },
   PatchProfileRequest: {
     type: "object",
     additionalProperties: false,
     properties: {
+      name: { type: "string", maxLength: 120, nullable: true },
       displayName: { type: "string", maxLength: 120, nullable: true },
+      email: { type: "string", format: "email", nullable: true },
+      phone: { type: "string", maxLength: 32, nullable: true },
       address: {
         type: "object",
         additionalProperties: false,

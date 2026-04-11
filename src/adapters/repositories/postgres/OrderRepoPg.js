@@ -35,6 +35,9 @@ export class OrderRepoPg extends OrderRepo {
     const {
       shopId,
       customerIdText,
+      customerName,
+      customerPhone,
+      customerAddress,
       orderNumber,
       status,
       paymentMethod,
@@ -50,13 +53,17 @@ export class OrderRepoPg extends OrderRepo {
 
     const { rows: oRows } = await client.query(
       `INSERT INTO orders (
-         shop_id, customer_id, order_number, status, payment_method,
+         shop_id, customer_id, customer_name, customer_phone, customer_address,
+         order_number, status, payment_method,
          subtotal_minor, delivery_fee_minor, total_minor, currency, notes
-       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING id, placed_at`,
       [
         shopId,
         customerIdText,
+        customerName ?? null,
+        customerPhone ?? null,
+        customerAddress ?? null,
         orderNumber,
         status,
         paymentMethod,

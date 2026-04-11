@@ -13,7 +13,7 @@ const pool = new pg.Pool({
     : { rejectUnauthorized: false }
 });
 
-const sqlPath = path.join(__dirname, "../migrations/002_drop_extraneous_public_tables.sql");
+const sqlPath = path.join(__dirname, "prune-noncanonical-tables.sql");
 const sql = fs.readFileSync(sqlPath, "utf8");
 
 try {
