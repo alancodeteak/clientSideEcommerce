@@ -14,7 +14,7 @@ const pool = new pg.Pool({
 });
 
 const migrationsDir = path.join(__dirname, "../migrations");
-const migrationFiles = ["001_full_schema.sql", "002_checkout_idempotency.sql"];
+const migrationFiles = ["001_full_schema.sql"];
 
 try {
   for (const schemaFile of migrationFiles) {

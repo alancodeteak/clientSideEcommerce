@@ -51,7 +51,10 @@ function rawEnv() {
           STOREFRONT_CATALOG_CACHE_TTL_SEC: "60",
           STOREFRONT_CATALOG_HTTP_CACHE_SEC: "0",
           CATALOG_CACHE_INVALIDATE_TOKEN: "",
-          METRICS_SCRAPE_TOKEN: ""
+          METRICS_SCRAPE_TOKEN: "",
+          OUTBOX_BATCH_SIZE: "50",
+          OUTBOX_POLL_INTERVAL_MS: "1000",
+          OUTBOX_MAX_RETRIES: "5"
         }
       : null;
 
@@ -210,7 +213,11 @@ const envSchema = z
     CATALOG_CACHE_INVALIDATE_TOKEN: z.string().optional().default(""),
 
     /** If non-empty, GET /metrics requires Authorization: Bearer <token> or X-Metrics-Token. */
-    METRICS_SCRAPE_TOKEN: z.string().optional().default("")
+    METRICS_SCRAPE_TOKEN: z.string().optional().default(""),
+
+    OUTBOX_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(50),
+    OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
+    OUTBOX_MAX_RETRIES: z.coerce.number().int().positive().default(5)
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === "production" && !val.DATABASE_URL?.trim()) {
@@ -287,5 +294,8 @@ export const env = {
   STOREFRONT_CATALOG_CACHE_TTL_SEC: parsed.data.STOREFRONT_CATALOG_CACHE_TTL_SEC ?? 60,
   STOREFRONT_CATALOG_HTTP_CACHE_SEC: parsed.data.STOREFRONT_CATALOG_HTTP_CACHE_SEC ?? 0,
   CATALOG_CACHE_INVALIDATE_TOKEN: parsed.data.CATALOG_CACHE_INVALIDATE_TOKEN?.trim() || "",
-  METRICS_SCRAPE_TOKEN: parsed.data.METRICS_SCRAPE_TOKEN?.trim() || ""
+  METRICS_SCRAPE_TOKEN: parsed.data.METRICS_SCRAPE_TOKEN?.trim() || "",
+  OUTBOX_BATCH_SIZE: parsed.data.OUTBOX_BATCH_SIZE ?? 50,
+  OUTBOX_POLL_INTERVAL_MS: parsed.data.OUTBOX_POLL_INTERVAL_MS ?? 1000,
+  OUTBOX_MAX_RETRIES: parsed.data.OUTBOX_MAX_RETRIES ?? 5
 };

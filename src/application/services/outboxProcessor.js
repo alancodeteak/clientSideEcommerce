@@ -1,0 +1,209 @@
+/*
+This file claims outbox batches and processes them with retry handling.
+*/
+
+function parsePayload(payload) {
+  if (payload == null) return {};
+  if (typeof payload === "object") return payload;
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+let outboxSchemaPromise = null;
+
+async function resolveOutboxSchema(pool) {
+  if (!outboxSchemaPromise) {
+    outboxSchemaPromise = (async () => {
+      const { rows } = await pool.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'outbox_messages'`
+      );
+
+      const columns = new Set(rows.map((r) => r.column_name));
+      const payloadColumn = columns.has("payload")
+        ? "payload"
+        : columns.has("payload_json")
+          ? "payload_json"
+          : null;
+      const required = ["status", "retry_count", "processed_at", "event_type", "created_at", "id"];
+      const missing = required.filter((name) => !columns.has(name));
+
+      if (!payloadColumn || missing.length) {
+        throw new Error(
+          `outbox_messages is missing required worker columns: ${[
+            ...missing,
+            ...(payloadColumn ? [] : ["payload or payload_json"])
+          ].join(", ")}`
+        );
+      }
+
+      return { payloadColumn };
+    })();
+  }
+
+  return outboxSchemaPromise;
+}
+
+async function claimPendingBatch(client, batchSize, payloadColumn) {
+  const { rows } = await client.query(
+    `WITH claimed AS (
+       SELECT id
+       FROM outbox_messages
+       WHERE status = 'pending'
+       ORDER BY created_at ASC
+       FOR UPDATE SKIP LOCKED
+       LIMIT $1
+     )
+     UPDATE outbox_messages o
+     SET status = 'processing'
+     FROM claimed
+     WHERE o.id = claimed.id
+     RETURNING o.id, o.event_type, o.${payloadColumn} AS payload, o.retry_count, o.created_at`,
+    [batchSize]
+  );
+  return rows;
+}
+
+async function updateDone(client, id) {
+  await client.query(
+    `UPDATE outbox_messages
+     SET status = 'done',
+         processed_at = now()
+     WHERE id = $1`,
+    [id]
+  );
+}
+
+async function updateFailure(client, id, nextRetryCount, maxRetries) {
+  const isPermanent = nextRetryCount >= maxRetries;
+  const nextStatus = isPermanent ? "failed" : "pending";
+  await client.query(
+    `UPDATE outbox_messages
+     SET status = $2,
+         retry_count = $3,
+         processed_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
+     WHERE id = $1`,
+    [id, nextStatus, nextRetryCount]
+  );
+  return { isPermanent, nextStatus };
+}
+
+export async function processOutboxBatch({
+  pool,
+  handlers,
+  logger,
+  batchSize,
+  maxRetries
+}) {
+  const { payloadColumn } = await resolveOutboxSchema(pool);
+  const claimClient = await pool.connect();
+  let claimedRows = [];
+  try {
+    await claimClient.query("BEGIN");
+    claimedRows = await claimPendingBatch(claimClient, batchSize, payloadColumn);
+    await claimClient.query("COMMIT");
+  } catch (err) {
+    try {
+      await claimClient.query("ROLLBACK");
+    } catch {}
+    throw err;
+  } finally {
+    claimClient.release();
+  }
+
+  if (!claimedRows.length) {
+    return { claimed: 0, done: 0, retried: 0, failed: 0 };
+  }
+
+  let done = 0;
+  let retried = 0;
+  let failed = 0;
+
+  for (const row of claimedRows) {
+    const handler = handlers[row.event_type];
+    const payload = parsePayload(row.payload);
+    const retryCount = Number(row.retry_count || 0);
+
+    logger.info(
+      {
+        event: "outbox.event.processing_started",
+        outboxMessageId: row.id,
+        eventType: row.event_type,
+        retryCount
+      },
+      "Outbox event processing started"
+    );
+
+    const updateClient = await pool.connect();
+    try {
+      if (typeof handler !== "function") {
+        throw new Error(`No outbox handler registered for event type: ${row.event_type}`);
+      }
+
+      await handler(payload, {
+        logger,
+        eventId: row.id,
+        eventType: row.event_type
+      });
+
+      await updateDone(updateClient, row.id);
+      done += 1;
+      logger.info(
+        {
+          event: "outbox.event.success",
+          outboxMessageId: row.id,
+          eventType: row.event_type
+        },
+        "Outbox event processed successfully"
+      );
+    } catch (err) {
+      const nextRetryCount = retryCount + 1;
+      const { isPermanent } = await updateFailure(updateClient, row.id, nextRetryCount, maxRetries);
+
+      if (isPermanent) {
+        failed += 1;
+        logger.error(
+          {
+            event: "outbox.event.failed_permanently",
+            outboxMessageId: row.id,
+            eventType: row.event_type,
+            retryCount: nextRetryCount,
+            maxRetries,
+            err
+          },
+          "Outbox event permanently failed"
+        );
+      } else {
+        retried += 1;
+        logger.warn(
+          {
+            event: "outbox.event.retry_scheduled",
+            outboxMessageId: row.id,
+            eventType: row.event_type,
+            retryCount: nextRetryCount,
+            maxRetries,
+            err: err?.message
+          },
+          "Outbox event failed and will be retried"
+        );
+      }
+    } finally {
+      updateClient.release();
+    }
+  }
+
+  return {
+    claimed: claimedRows.length,
+    done,
+    retried,
+    failed
+  };
+}
