@@ -2,7 +2,7 @@ import http from "node:http";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import { pool } from "../infra/db/pool.js";
-import { attachSocketServer } from "../infra/realtime/socketServer.js";
+import { disconnectSharedRedis } from "../infra/redis/sharedRedis.js";
 import { createAppContext } from "./composition.js";
 import { createExpressApp } from "./server.js";
 
@@ -11,6 +11,39 @@ import { createExpressApp } from "./server.js";
  * It checks database connectivity, builds app context, starts HTTP,
  * and logs startup errors clearly.
  */
+
+/** @type {import("node:http").Server | null} */
+let server = null;
+
+function installGracefulShutdown() {
+  const shutdown = async (signal) => {
+    logger.info({ signal }, "Shutdown signal received; draining HTTP connections");
+    if (!server) {
+      process.exit(0);
+      return;
+    }
+    await new Promise((resolve) => {
+      server.close(() => resolve());
+    });
+    server = null;
+    try {
+      await disconnectSharedRedis();
+    } catch (err) {
+      logger.warn({ err }, "Redis disconnect during shutdown");
+    }
+    try {
+      await pool.end();
+    } catch (err) {
+      logger.warn({ err }, "Pool end during shutdown");
+    }
+    logger.info("Graceful shutdown complete");
+    process.exit(0);
+  };
+
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+}
+
 async function main() {
   await pool.query("select 1 as ok");
 
@@ -23,9 +56,9 @@ async function main() {
 
   const ctx = createAppContext();
   const app = createExpressApp(ctx);
-  const server = http.createServer(app);
-  const realtime = attachSocketServer(server, { corsOrigin: env.CORS_ORIGIN });
-  ctx.emitOrderPlaced = (payload) => realtime.emitOrderPlaced(payload);
+  server = http.createServer(app);
+
+  installGracefulShutdown();
 
   await new Promise((resolve, reject) => {
     server.listen(env.PORT, () => {

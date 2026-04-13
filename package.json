@@ -11,6 +11,7 @@
     "db:prune": "node scripts/prune-noncanonical-tables.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke": "bash scripts/smoke-api.sh",
     "tunnel": "cloudflared tunnel --config cloudflared/config.yml run",
     "tunnel:login": "cloudflared tunnel login",
     "tunnel:bootstrap": "bash scripts/bootstrap-cloudflare-tunnel.sh"

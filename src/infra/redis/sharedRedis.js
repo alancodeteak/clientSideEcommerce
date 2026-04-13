@@ -22,3 +22,19 @@ export function getSharedRedisClient() {
   }
   return client;
 }
+
+/** Close the shared client (e.g. graceful shutdown). Safe to call multiple times. */
+export async function disconnectSharedRedis() {
+  if (!client) return;
+  const c = client;
+  client = null;
+  try {
+    await c.quit();
+  } catch {
+    try {
+      c.disconnect();
+    } catch {
+      // ignore
+    }
+  }
+}
