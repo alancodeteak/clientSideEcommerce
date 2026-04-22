@@ -1,6 +1,7 @@
 /*
 This file claims outbox batches and processes them with retry handling.
 */
+import { addOutboxMetric } from "../../infra/metrics/outboxMetrics.js";
 
 function parsePayload(payload) {
   if (payload == null) return {};
@@ -82,17 +83,62 @@ async function updateDone(client, id) {
   );
 }
 
-async function updateFailure(client, id, nextRetryCount, maxRetries) {
+function buildRetryDelayMs({ retryCount, baseMs, maxMs }) {
+  const exponent = Math.max(0, retryCount - 1);
+  const raw = Math.min(maxMs, baseMs * 2 ** exponent);
+  const jitter = Math.floor(Math.random() * Math.max(1, Math.round(raw * 0.2)));
+  return Math.min(maxMs, raw + jitter);
+}
+
+async function wait(ms) {
+  if (!ms || ms <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout(promise, timeoutMs) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Outbox handler timed out")), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function updateFailure(client, id, nextRetryCount, maxRetries, payloadColumn, errMessage) {
   const isPermanent = nextRetryCount >= maxRetries;
   const nextStatus = isPermanent ? "failed" : "pending";
-  await client.query(
-    `UPDATE outbox_messages
-     SET status = $2,
-         retry_count = $3,
-         processed_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
-     WHERE id = $1`,
-    [id, nextStatus, nextRetryCount]
-  );
+  if (!isPermanent) {
+    await client.query(
+      `UPDATE outbox_messages
+       SET status = $2,
+           retry_count = $3,
+           processed_at = NULL
+       WHERE id = $1`,
+      [id, nextStatus, nextRetryCount]
+    );
+  } else {
+    await client.query(
+      `UPDATE outbox_messages
+       SET status = $2,
+           retry_count = $3,
+           processed_at = now(),
+           ${payloadColumn} = jsonb_build_object(
+             'original', COALESCE(${payloadColumn}, '{}'::jsonb),
+             'dead_letter', jsonb_build_object(
+               'failed_at', now(),
+               'error', $4,
+               'retry_count', $3
+             )
+           )
+       WHERE id = $1`,
+      [id, nextStatus, nextRetryCount, String(errMessage || "unknown_error")]
+    );
+  }
   return { isPermanent, nextStatus };
 }
 
@@ -101,7 +147,10 @@ export async function processOutboxBatch({
   handlers,
   logger,
   batchSize,
-  maxRetries
+  maxRetries,
+  retryBaseMs = 250,
+  retryMaxMs = 30000,
+  handlerTimeoutMs = 10000
 }) {
   const { payloadColumn } = await resolveOutboxSchema(pool);
   const claimClient = await pool.connect();
@@ -122,6 +171,7 @@ export async function processOutboxBatch({
   if (!claimedRows.length) {
     return { claimed: 0, done: 0, retried: 0, failed: 0 };
   }
+  addOutboxMetric("claimed", claimedRows.length);
 
   let done = 0;
   let retried = 0;
@@ -148,14 +198,17 @@ export async function processOutboxBatch({
         throw new Error(`No outbox handler registered for event type: ${row.event_type}`);
       }
 
-      await handler(payload, {
-        logger,
-        eventId: row.id,
-        eventType: row.event_type
-      });
-
+      await withTimeout(
+        handler(payload, {
+          logger,
+          eventId: row.id,
+          eventType: row.event_type
+        }),
+        handlerTimeoutMs
+      );
       await updateDone(updateClient, row.id);
       done += 1;
+      addOutboxMetric("processed");
       logger.info(
         {
           event: "outbox.event.success",
@@ -165,11 +218,28 @@ export async function processOutboxBatch({
         "Outbox event processed successfully"
       );
     } catch (err) {
+      if (String(err?.message || "").toLowerCase().includes("timed out")) {
+        addOutboxMetric("handler_timeout");
+      }
       const nextRetryCount = retryCount + 1;
-      const { isPermanent } = await updateFailure(updateClient, row.id, nextRetryCount, maxRetries);
+      const retryDelayMs = buildRetryDelayMs({
+        retryCount: nextRetryCount,
+        baseMs: retryBaseMs,
+        maxMs: retryMaxMs
+      });
+      const { isPermanent } = await updateFailure(
+        updateClient,
+        row.id,
+        nextRetryCount,
+        maxRetries,
+        payloadColumn,
+        err?.message
+      );
 
       if (isPermanent) {
         failed += 1;
+        addOutboxMetric("failed");
+        addOutboxMetric("dead_lettered");
         logger.error(
           {
             event: "outbox.event.failed_permanently",
@@ -183,6 +253,7 @@ export async function processOutboxBatch({
         );
       } else {
         retried += 1;
+        addOutboxMetric("retried");
         logger.warn(
           {
             event: "outbox.event.retry_scheduled",
@@ -190,10 +261,12 @@ export async function processOutboxBatch({
             eventType: row.event_type,
             retryCount: nextRetryCount,
             maxRetries,
+            retryDelayMs,
             err: err?.message
           },
           "Outbox event failed and will be retried"
         );
+        await wait(retryDelayMs);
       }
     } finally {
       updateClient.release();

@@ -30,11 +30,11 @@ export function storefrontProductsOrderByClause(sortBy, sortOrder) {
   const dir = sortOrder === "asc" ? "ASC" : "DESC";
   switch (sortBy) {
     case "price":
-      return `p.offer_price_minor_per_unit ${dir}, p.name ASC, p.id ASC`;
+      return `sp.offer_price_minor_per_unit ${dir}, gp.name ASC, sp.id ASC`;
     case "name":
-      return `p.name ${dir}, p.id ASC`;
+      return `gp.name ${dir}, sp.id ASC`;
     case "created_at":
     default:
-      return `p.created_at ${dir}, p.id ${dir}`;
+      return `sp.created_at ${dir}, sp.id ${dir}`;
   }
 }

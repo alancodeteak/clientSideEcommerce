@@ -25,11 +25,17 @@ export function signCustomerAccessToken({ userId, customerId, shopId, role = "cu
 }
 
 export function verifyCustomerAccessToken(token) {
-  return jwt.verify(token, env.JWT_SECRET, {
+  const verifyOptions = {
     algorithms: env.JWT_ALLOWED_ALGORITHMS,
     issuer: env.JWT_ISSUER,
     audience: env.JWT_AUDIENCE
-  });
+  };
+  try {
+    return jwt.verify(token, env.JWT_SECRET, verifyOptions);
+  } catch (err) {
+    if (!env.JWT_PREVIOUS_SECRET) throw err;
+    return jwt.verify(token, env.JWT_PREVIOUS_SECRET, verifyOptions);
+  }
 }
 
 export function signCustomerRefreshToken({ userId, customerId }) {
@@ -50,11 +56,18 @@ export function signCustomerRefreshToken({ userId, customerId }) {
 }
 
 export function verifyCustomerRefreshToken(token) {
-  const payload = jwt.verify(token, env.JWT_REFRESH_SECRET, {
+  const verifyOptions = {
     algorithms: env.JWT_ALLOWED_ALGORITHMS,
     issuer: env.JWT_ISSUER,
     audience: `${env.JWT_AUDIENCE}:refresh`
-  });
+  };
+  let payload;
+  try {
+    payload = jwt.verify(token, env.JWT_REFRESH_SECRET, verifyOptions);
+  } catch (err) {
+    if (!env.JWT_PREVIOUS_REFRESH_SECRET) throw err;
+    payload = jwt.verify(token, env.JWT_PREVIOUS_REFRESH_SECRET, verifyOptions);
+  }
   if (typeof payload === "string" || payload.typ !== "refresh" || !payload.jti) {
     throw new Error("Invalid refresh token");
   }

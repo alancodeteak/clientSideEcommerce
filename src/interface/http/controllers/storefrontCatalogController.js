@@ -27,7 +27,10 @@ function listCategoriesHandler(ctx) {
     try {
       const shopId = shopIdForStorefront(req);
       const parentId = req.query.parent_id ?? undefined;
-      const categories = await ctx.storefrontCatalog.listCategories(shopId, { parentId });
+      const categories = await ctx.storefrontCatalog.listCategories(shopId, {
+        parentId,
+        all: req.query.all === true
+      });
       setCatalogHttpCache(ctx, res);
       res.json({ categories });
     } catch (err) {
@@ -46,6 +49,7 @@ function listProductsHandler(ctx) {
         search: req.query.search,
         limit: req.query.limit,
         cursor: req.query.cursor,
+        offset: req.query.offset,
         availability: req.query.availability,
         minPriceMinor: req.query.min_price_minor,
         maxPriceMinor: req.query.max_price_minor,

@@ -65,8 +65,22 @@ export function createExpressApp(ctx) {
       customSuccessMessage(req, res) {
         return isNoisePath(req.url) ? "health.check" : "api.request.completed";
       },
+      customReceivedMessage(req) {
+        return isNoisePath(req.url) ? "health.check.started" : "api.request.started";
+      },
       customErrorMessage() {
         return "api.request.completed";
+      },
+      customReceivedObject(req) {
+        return {
+          event: "api.request.started",
+          requestId: req.id,
+          method: req.method,
+          route: req.route?.path || req.originalUrl,
+          shopId: req.shopId,
+          userId: req.customerAuth?.userId,
+          customerId: req.customerAuth?.customerId
+        };
       },
       customSuccessObject(req, res, val) {
         return {

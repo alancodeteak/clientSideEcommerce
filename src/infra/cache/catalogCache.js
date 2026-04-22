@@ -5,6 +5,9 @@
  *
  * @param {{ redis: import("ioredis").default | null }} opts
  */
+import { incrementCacheMetric } from "../metrics/cacheMetrics.js";
+import { logger } from "../../config/logger.js";
+
 export function createCatalogCache({ redis }) {
   if (!redis) {
     return {
@@ -28,9 +31,17 @@ export function createCatalogCache({ redis }) {
       try {
         const c = getClient();
         const raw = await c.get(key);
-        if (!raw) return null;
+        if (!raw) {
+          incrementCacheMetric("get_miss");
+          logger.debug({ event: "catalog_cache_miss", cacheKey: key }, "Catalog cache miss");
+          return null;
+        }
+        incrementCacheMetric("get_hit");
+        logger.debug({ event: "catalog_cache_hit", cacheKey: key }, "Catalog cache hit");
         return JSON.parse(raw);
-      } catch {
+      } catch (err) {
+        incrementCacheMetric("get_error");
+        logger.warn({ event: "catalog_cache_get_error", cacheKey: key, err }, "Catalog cache get failed");
         return null;
       }
     },
@@ -39,13 +50,48 @@ export function createCatalogCache({ redis }) {
       try {
         const c = getClient();
         await c.set(key, JSON.stringify(value), "EX", ttlSec);
-      } catch {
+        incrementCacheMetric("set_ok");
+        logger.debug(
+          { event: "catalog_cache_set_ok", cacheKey: key, ttlSec },
+          "Catalog cache set success"
+        );
+      } catch (err) {
+        incrementCacheMetric("set_error");
+        logger.warn(
+          { event: "catalog_cache_set_error", cacheKey: key, ttlSec, err },
+          "Catalog cache set failed"
+        );
       }
     },
 
     async wrap(key, ttlSec, fn) {
       const hit = await this.get(key);
       if (hit != null) return hit;
+      const c = getClient();
+      const lockKey = `lock:${key}`;
+      const lock = await c.set(lockKey, "1", "EX", 5, "NX").catch(() => null);
+      if (lock === "OK") {
+        incrementCacheMetric("lock_acquired");
+        logger.debug({ event: "catalog_cache_lock_acquired", cacheKey: key }, "Catalog cache lock acquired");
+        try {
+          incrementCacheMetric("wrap_recompute");
+          const v = await fn();
+          await this.set(key, v, ttlSec);
+          return v;
+        } finally {
+          await c.del(lockKey).catch(() => {});
+        }
+      }
+
+      incrementCacheMetric("lock_contended");
+      logger.debug({ event: "catalog_cache_lock_contended", cacheKey: key }, "Catalog cache lock contended");
+      for (let i = 0; i < 5; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        const retryHit = await this.get(key);
+        if (retryHit != null) return retryHit;
+      }
+
+      incrementCacheMetric("wrap_recompute");
       const v = await fn();
       await this.set(key, v, ttlSec);
       return v;

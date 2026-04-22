@@ -192,6 +192,47 @@ export function buildPaths() {
         }
       }
     },
+    "/api/auth/email-otp/request": {
+      post: {
+        tags: ["Auth"],
+        summary: "Request customer email OTP",
+        description: "Creates an OTP challenge for `{ email, shopId }` and sends OTP via configured sender.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/EmailOtpRequestBody" } } }
+        },
+        responses: {
+          "200": {
+            description: "OK",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/OtpRequestResponse" } } }
+          },
+          "400": jsonErr,
+          "404": jsonErr,
+          "429": jsonErr
+        }
+      }
+    },
+    "/api/auth/email-otp/verify": {
+      post: {
+        tags: ["Auth"],
+        summary: "Verify customer email OTP and issue JWT session",
+        description: "Verifies `{ email, shopId, code }`, consumes challenge, and returns customer session JWT payload.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/EmailOtpVerifyBody" } } }
+        },
+        responses: {
+          "200": {
+            description: "OK",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SessionResponse" } } }
+          },
+          "400": jsonErr,
+          "401": jsonErr,
+          "404": jsonErr,
+          "429": jsonErr
+        }
+      }
+    },
     "/api/oauth/sign-in/social": {
       post: {
         tags: ["OAuth"],
@@ -317,13 +358,19 @@ export function buildPaths() {
         tags: ["Storefront catalog"],
         summary: "List categories",
         description:
-          "When `STOREFRONT_CATALOG_HTTP_CACHE_SEC` is set on the server, responses may include `Cache-Control` for CDN/browser caching.",
+          "When `STOREFRONT_CATALOG_HTTP_CACHE_SEC` is set on the server, responses may include `Cache-Control` for CDN/browser caching. Use `all=true` to fetch the full category list in one request.",
         parameters: [
           ...shopParams,
           {
             name: "parent_id",
             in: "query",
             schema: { type: "string", format: "uuid" }
+          },
+          {
+            name: "all",
+            in: "query",
+            description: "When true, returns all active categories for the shop. Cannot be used with parent_id.",
+            schema: { type: "boolean" }
           }
         ],
         responses: {
@@ -377,23 +424,34 @@ export function buildPaths() {
     "/storefront/products": {
       get: {
         tags: ["Storefront catalog"],
-        summary: "List products (cursor page)",
+        summary: "Search and list products",
         description:
-          "Returns products with product thumbnail image and embedded category object (`parent_id`, `name`, `slug`, `image`). Supports filtering and sorting.",
+          "Returns products with product thumbnail image and embedded category object (`parent_id`, `name`, `slug`, `image`). Supports text search, filtering, sorting, and pagination.",
         parameters: [
           ...shopParams,
           { name: "category_id", in: "query", schema: { type: "string", format: "uuid" } },
           { name: "brand_id", in: "query", schema: { type: "string", format: "uuid" } },
-          { name: "search", in: "query", schema: { type: "string" } },
+          {
+            name: "search",
+            in: "query",
+            description: "Partial text search over product name and slug.",
+            schema: { type: "string", maxLength: 200 }
+          },
           { name: "min_price_minor", in: "query", schema: { type: "integer", minimum: 0 } },
           { name: "max_price_minor", in: "query", schema: { type: "integer", minimum: 0 } },
           { name: "sort_by", in: "query", schema: { type: "string", enum: ["price", "created_at", "name"] } },
           { name: "sort_order", in: "query", schema: { type: "string", enum: ["asc", "desc"] } },
-          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 50 } },
+          {
+            name: "offset",
+            in: "query",
+            description: "Legacy offset pagination fallback. When provided, cursor pagination is not used.",
+            schema: { type: "integer", minimum: 0, maximum: 50000 }
+          },
           {
             name: "cursor",
             in: "query",
-            description: "Supported only with sort_by=created_at.",
+            description: "Opaque cursor token for forward pagination. Supported only with sort_by=created_at.",
             schema: { type: "string" }
           },
           {

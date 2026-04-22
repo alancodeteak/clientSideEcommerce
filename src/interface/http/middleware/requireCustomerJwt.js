@@ -1,11 +1,12 @@
 import { verifyCustomerAccessToken } from "../../../infra/auth/jwt.js";
+import { hashToken } from "../../../infra/security/tokenHash.js";
 import { logApiWarn } from "../../../infra/logging/apiLog.js";
 
 /**
  * @param {{
  *   authRepo: import("../../../application/ports/repositories/CustomerAuthRepo.js").CustomerAuthRepo,
  *   skipDbSessionCheck: boolean,
- *   sessionValidityCache?: { get: (key: string) => boolean | undefined, set: (key: string, valid: boolean) => void }
+ *   sessionValidityCache?: { get: (key: string) => Promise<boolean | undefined> | boolean | undefined, set: (key: string, valid: boolean, ttlMs?: number) => Promise<void> | void }
  * }} deps
  */
 export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck, sessionValidityCache }) {
@@ -44,10 +45,11 @@ export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck, session
         const payload = verifyCustomerAccessToken(token);
         const userId = payload.sub;
         const customerId = payload.customerId;
+        const sessionId = hashToken(token);
 
         if (!skipDbSessionCheck) {
-          const cacheKey = `${userId}:${customerId}`;
-          const cached = sessionValidityCache?.get(cacheKey);
+          const cacheKey = `${userId}:${sessionId}`;
+          const cached = await sessionValidityCache?.get(cacheKey);
           if (cached === true) {
             req.customerAuth = {
               userId,
@@ -73,7 +75,8 @@ export function createRequireCustomerJwt({ authRepo, skipDbSessionCheck, session
           }
 
           const ok = await authRepo.isCustomerSessionValid(userId, customerId);
-          sessionValidityCache?.set(cacheKey, ok);
+          const ttlMs = Number(payload.exp) * 1000 - Date.now();
+          await sessionValidityCache?.set(cacheKey, ok, ttlMs);
           if (!ok) {
             logApiWarn("api.auth.rejected", req, {
               code: "UNAUTHORIZED",

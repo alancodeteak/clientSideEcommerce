@@ -16,7 +16,9 @@ import { validate } from "../middleware/validate.js";
 import {
   oauthJwtBodySchema,
   otpRequestBodySchema,
-  otpVerifyBodySchema
+  otpVerifyBodySchema,
+  emailOtpRequestBodySchema,
+  emailOtpVerifyBodySchema
 } from "../validations/authSchemas.js";
 import { oauthSocialBodySchema } from "../validations/oauthSchemas.js";
 import { patchProfileBodySchema } from "../validations/profileSchemas.js";
@@ -46,8 +48,9 @@ export function createRoutes(ctx) {
   const authScopeKey = (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const shopId = typeof body.shopId === "string" ? body.shopId.trim() : "";
-    return `${req.ip}:${phone}:${shopId}`;
+    return `${req.ip}:${phone}:${email}:${shopId}`;
   };
 
   const authLimiter = createLimiter({
@@ -118,7 +121,9 @@ export function createRoutes(ctx) {
     handlers: authHandlers,
     oauthJwtBodySchema,
     otpRequestBodySchema,
-    otpVerifyBodySchema
+    otpVerifyBodySchema,
+    emailOtpRequestBodySchema,
+    emailOtpVerifyBodySchema
   });
 
   mountOauthRoutes(r, {

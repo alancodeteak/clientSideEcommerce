@@ -1,4 +1,6 @@
 // Purpose: Lightweight in-process HTTP counters for dashboards (Phase 3 observability).
+import { getCacheMetricsSnapshot } from "./cacheMetrics.js";
+import { getOutboxMetricsSnapshot } from "./outboxMetrics.js";
 
 let requestsTotal = 0;
 /** @type {Map<string, number>} key = `${method} ${routeKey}|${statusClass}` */
@@ -35,6 +37,8 @@ export function requestMetricsMiddleware(req, res, next) {
 export function getMetricsSnapshot() {
   return {
     requests_total: requestsTotal,
-    by_method_route_status: Object.fromEntries(buckets)
+    by_method_route_status: Object.fromEntries(buckets),
+    cache: getCacheMetricsSnapshot(),
+    outbox: getOutboxMetricsSnapshot()
   };
 }

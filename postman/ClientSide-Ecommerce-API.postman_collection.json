@@ -5,10 +5,15 @@
     "description": "Storefront API (2026-04): health, OTP auth, Google OAuth2 + JWT exchange, profile, service area, catalog, storefront cart/checkout/account/orders.\n\n**Tenant / shop**\n- Send **`x-shop-id: {{shopId}}`** on tenant-scoped routes (catalog, storefront, checkout, …). Query parameters **`shopId`** / **`shop_id`** are not read for resolution.\n\n**Setup**\n- `npm run dev` — default **4100**. `npm run db:migrate`. A **shop** row must exist; set **`shopId`** (collection or environment variable).\n- **`.env`:** `DATABASE_URL`, `JWT_SECRET`, `API_PUBLIC_URL`, Google OAuth vars. Redirect URI in Google Console: `{API_PUBLIC_URL}/api/oauth/callback/google`.\n\n**JWT**\n- **`POST /api/auth/otp/verify`** and **`POST /api/auth/oauth/jwt`** return **`accessToken`**.\n- Protected routes: `Authorization: Bearer {{accessToken}}`.\n\n**Postman + OAuth JWT exchange**\n- Cookie flow: after browser Google callback to `/api/oauth/callback/google`, cookie **`storefront_oauth_exchange`** is set on API host.\n- `POST /api/auth/oauth/jwt` with body `{}` succeeds only when valid cookie is sent.\n\n**Architecture note**\n- Picker/staff APIs are not served by this app anymore; picker notifications are handled by a separate server/process.\n\n**CORS**\n- API allows credentials for **`CORS_ORIGIN`** (e.g. `http://localhost:5173`). OAuth `POST /api/oauth/sign-in/social` may need **`Origin`** matching that value when testing from CLI.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:4100" },
     { "key": "shopId", "value": "" },
     { "key": "phone", "value": "+919999999999" },
+    { "key": "email", "value": "user@example.com" },
     { "key": "accessToken", "value": "" },
     { "key": "corsOrigin", "value": "http://localhost:5173" }
   ],
@@ -112,6 +117,49 @@
             "description": "After Google callback, exchange `storefront_oauth_exchange` cookie for JWT. Body `{}` is valid.\n\nRequires a valid cookie; returns **401** if cookie is missing/invalid."
           },
           "response": []
+        },
+        {
+          "name": "POST /api/auth/email-otp/request",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"shopId\": \"{{shopId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/email-otp/request",
+            "description": "Request an OTP for an email + shop."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/email-otp/verify",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.accessToken) pm.collectionVariables.set('accessToken', j.accessToken);",
+                  "  if (j.shopIds && j.shopIds[0]) pm.collectionVariables.set('shopId', j.shopIds[0]);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"shopId\": \"{{shopId}}\",\n  \"code\": \"123456\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/email-otp/verify",
+            "description": "Verify email OTP and issue customer JWT."
+          },
+          "response": []
         }
       ]
     },
@@ -155,14 +203,9 @@
           "name": "GET /api/me/profile",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
+            "header": [],
             "url": "{{baseUrl}}/api/me/profile",
-            "description": "**401** without `Authorization: Bearer {{accessToken}}`."
+            "description": "**401** without `{{accessToken}}` (collection-level Bearer auth)."
           },
           "response": []
         },
@@ -171,8 +214,7 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
@@ -202,51 +244,6 @@
             },
             "url": "{{baseUrl}}/storefront/location/check",
             "description": "**200** — `serviceable`, `distanceM`, `maxRadiusM`. Uses tenant from `x-shop-id` (or host resolution)."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Catalog",
-      "item": [
-        {
-          "name": "GET /api/catalog/search",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
-            "url": "{{baseUrl}}/api/catalog/search?type=both&q=&categoryId=&parentId=&availability=&productSort=name&productOrder=asc&categorySort=sort_order&categoryOrder=asc&productLimit=100&productOffset=0&categoryLimit=500&categoryOffset=0",
-            "description": "Requires **`x-shop-id`** (or host-based shop resolution).\n\n**type:** `products` | `categories` | `both`.\n\n**q:** optional search (name/slug).\n\nProducts: `categoryId`, `availability`, `productSort`, `productOrder`, `productLimit`, `productOffset`.\n\nCategories: `parentId`, `categorySort`, `categoryOrder`, `categoryLimit`, `categoryOffset`.\n\n**200:** `{ products, categories }` (arrays may be omitted when filtered)."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/catalog/categories",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
-            "url": "{{baseUrl}}/api/catalog/categories",
-            "description": "Root categories. Optional **`parentId`** (UUID) for children."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/catalog/products",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
-            "url": "{{baseUrl}}/api/catalog/products",
-            "description": "Active products. Optional **`categoryId`**."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/catalog/items",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
-            "url": "{{baseUrl}}/api/catalog/items",
-            "description": "Same as **products** (active items)."
           },
           "response": []
         }
@@ -372,7 +369,6 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
               { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
@@ -390,7 +386,6 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
               { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
@@ -406,10 +401,7 @@
           "name": "GET /storefront/address",
           "request": {
             "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "x-shop-id", "value": "{{shopId}}" }
-            ],
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
             "url": "{{baseUrl}}/storefront/address",
             "description": "Get storefront delivery address."
           },
@@ -421,7 +413,6 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
               { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
@@ -439,7 +430,6 @@
             "method": "PATCH",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
               { "key": "x-shop-id", "value": "{{shopId}}" }
             ],
             "body": {
@@ -455,10 +445,7 @@
           "name": "GET /storefront/orders",
           "request": {
             "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "x-shop-id", "value": "{{shopId}}" }
-            ],
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
             "url": "{{baseUrl}}/storefront/orders",
             "description": "List storefront customer orders."
           },
@@ -468,10 +455,7 @@
           "name": "GET /storefront/orders/:id",
           "request": {
             "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "x-shop-id", "value": "{{shopId}}" }
-            ],
+            "header": [{ "key": "x-shop-id", "value": "{{shopId}}" }],
             "url": "{{baseUrl}}/storefront/orders/00000000-0000-0000-0000-000000000000",
             "description": "Get one order detail by order id."
           },

@@ -32,6 +32,10 @@ function buildStoreIfConfigured() {
  * }} opts
  */
 export function createLimiter({ windowMs, maxTest, maxProd, message, keyGenerator }) {
+  if (env.DISABLE_RATE_LIMITING) {
+    return (_req, _res, next) => next();
+  }
+
   return rateLimit({
     windowMs,
     max: env.NODE_ENV === "test" ? maxTest : maxProd,

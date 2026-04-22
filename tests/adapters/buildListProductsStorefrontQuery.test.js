@@ -1,0 +1,49 @@
+import { describe, it, expect } from "vitest";
+import { buildListProductsStorefrontQuery } from "../../src/adapters/repositories/postgres/queries/buildListProductsStorefrontQuery.js";
+
+describe("buildListProductsStorefrontQuery", () => {
+  it("builds cursor pagination query without offset", () => {
+    const out = buildListProductsStorefrontQuery({
+      shopId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      categoryId: null,
+      brandId: null,
+      qPattern: "%milk%",
+      availability: null,
+      minPriceMinor: null,
+      maxPriceMinor: null,
+      limit: 20,
+      offset: null,
+      cursorCreatedAt: "2026-01-01T00:00:00.000Z",
+      cursorId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      sortOrder: "desc",
+      orderBySql: "sp.created_at DESC, sp.id DESC"
+    });
+
+    expect(out.text).toContain("AND (sp.created_at, sp.id) < ($9::timestamptz, $10::uuid)");
+    expect(out.text).toContain("FROM shop_products sp");
+    expect(out.text).toContain("JOIN global_products gp");
+    expect(out.text).not.toContain("OFFSET $");
+    expect(out.values).toHaveLength(10);
+  });
+
+  it("builds offset query when offset is provided", () => {
+    const out = buildListProductsStorefrontQuery({
+      shopId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      categoryId: null,
+      brandId: null,
+      qPattern: null,
+      availability: null,
+      minPriceMinor: null,
+      maxPriceMinor: null,
+      limit: 20,
+      offset: 100,
+      cursorCreatedAt: null,
+      cursorId: null,
+      sortOrder: "desc",
+      orderBySql: "sp.created_at DESC, sp.id DESC"
+    });
+
+    expect(out.text).toContain("OFFSET $9");
+    expect(out.values.at(-1)).toBe(100);
+  });
+});

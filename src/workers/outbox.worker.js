@@ -30,6 +30,9 @@ async function runOutboxWorker() {
   const pollIntervalMs = env.OUTBOX_POLL_INTERVAL_MS;
   const batchSize = env.OUTBOX_BATCH_SIZE;
   const maxRetries = env.OUTBOX_MAX_RETRIES;
+  const retryBaseMs = env.OUTBOX_RETRY_BASE_MS;
+  const retryMaxMs = env.OUTBOX_RETRY_MAX_MS;
+  const handlerTimeoutMs = env.OUTBOX_HANDLER_TIMEOUT_MS;
   const shutdownController = new AbortController();
   let stopping = false;
 
@@ -48,7 +51,10 @@ async function runOutboxWorker() {
       event: "outbox.worker.started",
       batchSize,
       pollIntervalMs,
-      maxRetries
+      maxRetries,
+      retryBaseMs,
+      retryMaxMs,
+      handlerTimeoutMs
     },
     "Outbox worker started"
   );
@@ -60,7 +66,10 @@ async function runOutboxWorker() {
         handlers,
         logger,
         batchSize,
-        maxRetries
+        maxRetries,
+        retryBaseMs,
+        retryMaxMs,
+        handlerTimeoutMs
       });
 
       if (result.claimed > 0) {

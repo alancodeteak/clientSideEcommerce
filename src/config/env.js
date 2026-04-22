@@ -24,6 +24,9 @@ function rawEnv() {
             ].join(","),
           API_PUBLIC_URL: "http://localhost:4100",
           DATABASE_URL: "postgresql://localhost:5432/postgres",
+          DATABASE_POOL_MAX_DEV: "12",
+          DATABASE_POOL_MAX_TEST: "4",
+          DATABASE_POOL_MAX_PROD: "30",
           JWT_ISSUER: "clientside-ecommerce",
           JWT_AUDIENCE: "clientside-ecommerce",
           JWT_EXPIRES_IN: "8h",
@@ -39,6 +42,13 @@ function rawEnv() {
           OTP_MAX_REQUESTS_PER_WINDOW: "5",
           OTP_MAX_ATTEMPTS: "5",
           LOG_OTP_IN_DEV: "true",
+          SMTP_HOST: "",
+          SMTP_PORT: "587",
+          SMTP_USER: "",
+          SMTP_PASS: "",
+          SMTP_SECURE: "false",
+          OTP_FROM_EMAIL: "",
+          DISABLE_RATE_LIMITING: "true",
           OBJECT_STORAGE_PUBLIC_BASE_URL: "",
           ENABLE_API_DOCS: "true",
           ALLOW_API_DOCS_IN_PRODUCTION: "false",
@@ -54,7 +64,10 @@ function rawEnv() {
           METRICS_SCRAPE_TOKEN: "",
           OUTBOX_BATCH_SIZE: "50",
           OUTBOX_POLL_INTERVAL_MS: "1000",
-          OUTBOX_MAX_RETRIES: "5"
+          OUTBOX_MAX_RETRIES: "5",
+          OUTBOX_RETRY_BASE_MS: "250",
+          OUTBOX_RETRY_MAX_MS: "30000",
+          OUTBOX_HANDLER_TIMEOUT_MS: "10000"
         }
       : null;
 
@@ -120,10 +133,32 @@ const envSchema = z
       const s = String(val).toLowerCase();
       return s === "true" || s === "1" || s === "yes";
     }, z.boolean()),
+    SMTP_HOST: z.string().optional().default(""),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+    SMTP_USER: z.string().optional().default(""),
+    SMTP_PASS: z.string().optional().default(""),
+    SMTP_SECURE: z.preprocess((val) => {
+      if (val === true || val === 1) return true;
+      if (val === false || val === 0) return false;
+      if (val === undefined || val === null || val === "") return false;
+      const s = String(val).toLowerCase();
+      return s === "true" || s === "1" || s === "yes";
+    }, z.boolean()),
+    OTP_FROM_EMAIL: z.string().optional().default(""),
+    DISABLE_RATE_LIMITING: z.preprocess((val) => {
+      if (val === true || val === 1) return true;
+      if (val === false || val === 0) return false;
+      if (val === undefined || val === null || val === "") return false;
+      const s = String(val).toLowerCase();
+      return s === "true" || s === "1" || s === "yes";
+    }, z.boolean()),
 
     DATABASE_URL: z.string().min(1),
-    /** Max connections per Node process; size against DB max_connections and replica count. */
-    DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+    /** Optional explicit override for max connections per Node process. */
+    DATABASE_POOL_MAX: z.coerce.number().int().positive().optional(),
+    DATABASE_POOL_MAX_DEV: z.coerce.number().int().positive().default(12),
+    DATABASE_POOL_MAX_TEST: z.coerce.number().int().positive().default(4),
+    DATABASE_POOL_MAX_PROD: z.coerce.number().int().positive().default(30),
     /** Close idle clients after this many ms (node-pg default 10000). */
     DATABASE_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(10_000),
     /** Abort connect attempts after this many ms; 0 = no timeout (driver default). */
@@ -138,6 +173,8 @@ const envSchema = z
 
     JWT_SECRET: z.string().min(16),
     JWT_REFRESH_SECRET: z.string().min(16),
+    JWT_PREVIOUS_SECRET: z.string().optional().default(""),
+    JWT_PREVIOUS_REFRESH_SECRET: z.string().optional().default(""),
     JWT_ISSUER: z.string().min(1),
     JWT_AUDIENCE: z.string().min(1),
     JWT_EXPIRES_IN: z.string().min(1),
@@ -217,7 +254,10 @@ const envSchema = z
 
     OUTBOX_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(50),
     OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
-    OUTBOX_MAX_RETRIES: z.coerce.number().int().positive().default(5)
+    OUTBOX_MAX_RETRIES: z.coerce.number().int().positive().default(5),
+    OUTBOX_RETRY_BASE_MS: z.coerce.number().int().positive().default(250),
+    OUTBOX_RETRY_MAX_MS: z.coerce.number().int().positive().default(30_000),
+    OUTBOX_HANDLER_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000)
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === "production" && !val.DATABASE_URL?.trim()) {
@@ -272,6 +312,36 @@ const envSchema = z
           "TRUST_PROXY must be true in production behind a reverse proxy so req.ip and rate limiting are reliable"
       });
     }
+    if (val.NODE_ENV === "production" && val.DISABLE_RATE_LIMITING) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DISABLE_RATE_LIMITING"],
+        message: "DISABLE_RATE_LIMITING must be false in production"
+      });
+    }
+    if (val.SMTP_HOST) {
+      if (!val.SMTP_USER) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SMTP_USER"],
+          message: "SMTP_USER is required when SMTP_HOST is set"
+        });
+      }
+      if (!val.SMTP_PASS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SMTP_PASS"],
+          message: "SMTP_PASS is required when SMTP_HOST is set"
+        });
+      }
+      if (!val.OTP_FROM_EMAIL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["OTP_FROM_EMAIL"],
+          message: "OTP_FROM_EMAIL is required when SMTP_HOST is set"
+        });
+      }
+    }
   });
 
 const parsed = envSchema.safeParse(rawEnv());
@@ -281,14 +351,29 @@ if (!parsed.success) {
 }
 
 const apiPublic = parsed.data.API_PUBLIC_URL.replace(/\/$/, "");
+const derivedPoolMax =
+  parsed.data.NODE_ENV === "test"
+    ? parsed.data.DATABASE_POOL_MAX_TEST
+    : parsed.data.NODE_ENV === "production"
+      ? parsed.data.DATABASE_POOL_MAX_PROD
+      : parsed.data.DATABASE_POOL_MAX_DEV;
 
 export const env = {
   ...parsed.data,
   API_PUBLIC_URL: apiPublic,
   DATABASE_URL: parsed.data.DATABASE_URL.trim(),
+  DATABASE_POOL_MAX: parsed.data.DATABASE_POOL_MAX ?? derivedPoolMax,
   STOREFRONT_ROOT_DOMAIN: parsed.data.STOREFRONT_ROOT_DOMAIN?.trim() || "",
   OBJECT_STORAGE_PUBLIC_BASE_URL: parsed.data.OBJECT_STORAGE_PUBLIC_BASE_URL?.trim() || "",
   REDIS_URL: parsed.data.REDIS_URL?.trim() || "",
+  SMTP_HOST: parsed.data.SMTP_HOST?.trim() || "",
+  SMTP_PORT: parsed.data.SMTP_PORT ?? 587,
+  SMTP_USER: parsed.data.SMTP_USER?.trim() || "",
+  SMTP_PASS: parsed.data.SMTP_PASS || "",
+  SMTP_SECURE: parsed.data.SMTP_SECURE ?? false,
+  OTP_FROM_EMAIL: parsed.data.OTP_FROM_EMAIL?.trim() || "",
+  JWT_PREVIOUS_SECRET: parsed.data.JWT_PREVIOUS_SECRET?.trim() || "",
+  JWT_PREVIOUS_REFRESH_SECRET: parsed.data.JWT_PREVIOUS_REFRESH_SECRET?.trim() || "",
   STOREFRONT_DELIVERY_FEE_MINOR: parsed.data.STOREFRONT_DELIVERY_FEE_MINOR ?? 0,
   STOREFRONT_ENFORCE_SERVICEABILITY: parsed.data.STOREFRONT_ENFORCE_SERVICEABILITY ?? false,
   STOREFRONT_CATALOG_CACHE_TTL_SEC: parsed.data.STOREFRONT_CATALOG_CACHE_TTL_SEC ?? 60,
@@ -297,5 +382,8 @@ export const env = {
   METRICS_SCRAPE_TOKEN: parsed.data.METRICS_SCRAPE_TOKEN?.trim() || "",
   OUTBOX_BATCH_SIZE: parsed.data.OUTBOX_BATCH_SIZE ?? 50,
   OUTBOX_POLL_INTERVAL_MS: parsed.data.OUTBOX_POLL_INTERVAL_MS ?? 1000,
-  OUTBOX_MAX_RETRIES: parsed.data.OUTBOX_MAX_RETRIES ?? 5
+  OUTBOX_MAX_RETRIES: parsed.data.OUTBOX_MAX_RETRIES ?? 5,
+  OUTBOX_RETRY_BASE_MS: parsed.data.OUTBOX_RETRY_BASE_MS ?? 250,
+  OUTBOX_RETRY_MAX_MS: parsed.data.OUTBOX_RETRY_MAX_MS ?? 30000,
+  OUTBOX_HANDLER_TIMEOUT_MS: parsed.data.OUTBOX_HANDLER_TIMEOUT_MS ?? 10000
 };

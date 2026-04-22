@@ -9,7 +9,9 @@ export function mountAuthRoutes(r, deps) {
     handlers,
     oauthJwtBodySchema,
     otpRequestBodySchema,
-    otpVerifyBodySchema
+    otpVerifyBodySchema,
+    emailOtpRequestBodySchema,
+    emailOtpVerifyBodySchema
   } = deps;
 
   r.post(
@@ -23,6 +25,18 @@ export function mountAuthRoutes(r, deps) {
     otpVerifyLimiter ?? authLimiter,
     validate({ body: otpVerifyBodySchema }),
     handlers.otpVerify
+  );
+  r.post(
+    "/api/auth/email-otp/request",
+    otpRequestLimiter ?? authLimiter,
+    validate({ body: emailOtpRequestBodySchema }),
+    handlers.emailOtpRequest
+  );
+  r.post(
+    "/api/auth/email-otp/verify",
+    otpVerifyLimiter ?? authLimiter,
+    validate({ body: emailOtpVerifyBodySchema }),
+    handlers.emailOtpVerify
   );
   r.post("/api/auth/oauth/jwt", authLimiter, validate({ body: oauthJwtBodySchema }), handlers.oauthJwt);
 }

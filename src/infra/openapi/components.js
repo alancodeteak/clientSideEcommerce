@@ -85,6 +85,25 @@ export const schemas = {
       code: { type: "string", pattern: "^\\d{6}$" }
     }
   },
+  EmailOtpRequestBody: {
+    type: "object",
+    required: ["email", "shopId"],
+    additionalProperties: false,
+    properties: {
+      email: { type: "string", format: "email" },
+      shopId: { type: "string", format: "uuid" }
+    }
+  },
+  EmailOtpVerifyBody: {
+    type: "object",
+    required: ["email", "shopId", "code"],
+    additionalProperties: false,
+    properties: {
+      email: { type: "string", format: "email" },
+      shopId: { type: "string", format: "uuid" },
+      code: { type: "string", pattern: "^\\d{6}$" }
+    }
+  },
   OtpRequestResponse: {
     type: "object",
     properties: {

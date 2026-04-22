@@ -1,6 +1,7 @@
 import { AuthError } from "../../../domain/errors/AuthError.js";
-import { signCustomerAccessToken } from "../../../infra/auth/jwt.js";
+import { signCustomerAccessToken, verifyCustomerAccessToken } from "../../../infra/auth/jwt.js";
 import { buildProfileFromShops } from "./customerProfile.js";
+import { hashToken } from "../../../infra/security/tokenHash.js";
 
 /**
  * Build the same JSON body as successful `login` / OAuth completion (JWT + profile + shopIds).
@@ -9,7 +10,6 @@ import { buildProfileFromShops } from "./customerProfile.js";
  * @param {string} userId
  */
 export async function buildStorefrontSessionResponse(authRepo, client, userId, sessionMeta = {}) {
-  void sessionMeta;
   const user = await authRepo.getUserById(client, userId);
   if (!user || !user.is_active) {
     throw new AuthError("Invalid credentials");
@@ -29,6 +29,15 @@ export async function buildStorefrontSessionResponse(authRepo, client, userId, s
     customerId: customer.id,
     shopId: shopIds.length === 1 ? shopIds[0] : undefined
   });
+  const payload = verifyCustomerAccessToken(accessToken);
+  const ttlMs = Number(payload.exp) * 1000 - Date.now();
+  if (sessionMeta?.sessionCache && ttlMs > 0) {
+    await sessionMeta.sessionCache.storeSession({
+      userId: user.id,
+      sessionId: hashToken(accessToken),
+      ttlMs
+    });
+  }
 
   return {
     accessToken,

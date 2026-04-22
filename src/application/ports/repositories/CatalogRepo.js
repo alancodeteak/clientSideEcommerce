@@ -34,6 +34,11 @@ export class CatalogRepo {
     throw new Error("Not implemented");
   }
 
+  async listAllCategoriesStorefront(_shopId) {
+    void _shopId;
+    throw new Error("Not implemented");
+  }
+
   async listProductsStorefront(_shopId, _params) {
     void _shopId;
     void _params;

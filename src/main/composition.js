@@ -21,19 +21,22 @@ import { provisionCustomerForOAuthShop } from "../application/services/auth/prov
 import { createAssertCustomerShopAccess } from "../application/services/auth/assertCustomerShopAccess.js";
 import { createRequestCustomerOtp } from "../application/services/auth/requestCustomerOtp.js";
 import { createVerifyCustomerOtp } from "../application/services/auth/verifyCustomerOtp.js";
+import { createRequestCustomerEmailOtp } from "../application/services/auth/requestCustomerEmailOtp.js";
+import { createVerifyCustomerEmailOtp } from "../application/services/auth/verifyCustomerEmailOtp.js";
 import { getCustomerProfile } from "../application/services/profile/getCustomerProfile.js";
 import { updateCustomerProfile } from "../application/services/profile/updateCustomerProfile.js";
 import { createUpdateStorefrontProfile } from "../application/services/profile/updateStorefrontProfile.js";
 import { createCheckShopServiceArea } from "../application/services/shops/checkShopServiceArea.js";
 import { createEnsureShopForCatalog } from "../application/services/catalog/ensureShopForCatalog.js";
 import { createCatalogCache } from "../infra/cache/catalogCache.js";
-import { createSessionValidityCache } from "../infra/cache/sessionValidityCache.js";
 import { getSharedRedisClient } from "../infra/redis/sharedRedis.js";
 import { createStorefrontCatalog } from "../application/services/storefront/storefrontCatalog.js";
 import { createStorefrontCart } from "../application/services/storefront/storefrontCart.js";
 import { createCheckoutStorefront } from "../application/services/checkout/checkoutStorefront.js";
 import { logger } from "../config/logger.js";
 import { ConsoleSmsSender } from "../adapters/sms/consoleSmsSender.js";
+import { SmtpOtpSender } from "../adapters/sms/smtpOtpSender.js";
+import { createSessionCache } from "../utils/sessionCache.js";
 
 export function createAppContext() {
   const catalogRepo = new CatalogRepoPg();
@@ -43,9 +46,23 @@ export function createAppContext() {
   const shopLookupRepo = new ShopLookupRepoPg();
   const shopServiceAreaRepo = new ShopServiceAreaRepoPg();
   const ensureShopForCatalog = createEnsureShopForCatalog({ authRepo });
-  const sessionValidityCache = createSessionValidityCache({
-    ttlMs: env.CUSTOMER_SESSION_CHECK_CACHE_MS
-  });
+  const sessionCache = createSessionCache({ redis: getSharedRedisClient() });
+  const sessionValidityCache = {
+    async get(key) {
+      const [userId, sessionId] = String(key || "").split(":");
+      if (!userId || !sessionId) return undefined;
+      return sessionCache.validateSession({ userId, sessionId });
+    },
+    async set(key, valid, ttlMs = env.CUSTOMER_SESSION_CHECK_CACHE_MS) {
+      const [userId, sessionId] = String(key || "").split(":");
+      if (!userId || !sessionId) return;
+      if (valid) {
+        await sessionCache.storeSession({ userId, sessionId, ttlMs });
+        return;
+      }
+      await sessionCache.deleteSession({ userId, sessionId });
+    }
+  };
   const customerJwtMiddleware = createRequireCustomerJwt({
     authRepo,
     skipDbSessionCheck: env.NODE_ENV === "test",
@@ -73,6 +90,16 @@ export function createAppContext() {
     nodeEnv: env.NODE_ENV,
     logOtpInDev: env.LOG_OTP_IN_DEV
   });
+  const emailOtpSender = env.SMTP_HOST
+    ? new SmtpOtpSender({
+        host: env.SMTP_HOST,
+        port: env.SMTP_PORT,
+        user: env.SMTP_USER,
+        pass: env.SMTP_PASS,
+        fromEmail: env.OTP_FROM_EMAIL,
+        secure: env.SMTP_SECURE
+      })
+    : smsSender;
   const requestCustomerOtp = createRequestCustomerOtp({
     authRepo,
     smsSender,
@@ -82,6 +109,18 @@ export function createAppContext() {
     otpMaxRequestsPerWindow: env.OTP_MAX_REQUESTS_PER_WINDOW
   });
   const verifyCustomerOtp = createVerifyCustomerOtp({
+    authRepo,
+    otpMaxAttempts: env.OTP_MAX_ATTEMPTS
+  });
+  const requestCustomerEmailOtp = createRequestCustomerEmailOtp({
+    authRepo,
+    otpSender: emailOtpSender,
+    otpTtlSeconds: env.OTP_TTL_SECONDS,
+    otpResendSeconds: env.OTP_RESEND_SECONDS,
+    otpRequestWindowSeconds: env.OTP_REQUEST_WINDOW_SECONDS,
+    otpMaxRequestsPerWindow: env.OTP_MAX_REQUESTS_PER_WINDOW
+  });
+  const verifyCustomerEmailOtp = createVerifyCustomerEmailOtp({
     authRepo,
     otpMaxAttempts: env.OTP_MAX_ATTEMPTS
   });
@@ -121,9 +160,14 @@ export function createAppContext() {
     searchCatalog: createSearchCatalog({ catalogRepo, ensureShopForCatalog }),
     provisionCustomerForOAuthShop: provisionCustomerForOAuthShop({ authRepo }),
     buildStorefrontSessionResponse: (client, userId, sessionMeta) =>
-      buildStorefrontSessionResponse(authRepo, client, userId, sessionMeta),
+      buildStorefrontSessionResponse(authRepo, client, userId, {
+        ...sessionMeta,
+        sessionCache
+      }),
     requestCustomerOtp,
     verifyCustomerOtp,
+    requestCustomerEmailOtp,
+    verifyCustomerEmailOtp,
     getCustomerProfile: getCustomerProfile({ authRepo }),
     updateCustomerProfile: updateCustomerProfile({ authRepo }),
     checkShopServiceArea,
